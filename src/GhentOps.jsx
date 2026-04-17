@@ -17,6 +17,7 @@ import {
   Zap,
   Radio,
 } from "lucide-react";
+import MiniMap, { lookupVenue, lookupParking, lookupAirStation } from "./MiniMap.jsx";
 
 // ═════════════════════════════════════════════════════════════════════════
 // GHENT · OPS — Real-Time Civic Operations Dashboard
@@ -491,6 +492,34 @@ export default function GhentOps() {
               <span className="chip"><Activity size={11} aria-hidden="true" /> Real-time · Occupancy vs capacity</span>
             </div>
           </header>
+          <div className="panel__map">
+            {isLoaded && (
+              <MiniMap
+                height={220}
+                markers={parkData
+                  .map((p) => {
+                    const coords = lookupParking(p.name);
+                    if (!coords) return null;
+                    const st = occStatus(p.occupation);
+                    return {
+                      lng: coords.lng,
+                      lat: coords.lat,
+                      color: st.color,
+                      size: 12 + Math.sqrt(p.total) / 4,
+                      label: p.name,
+                      sublabel: `${p.occupation}% full · ${p.free} free`,
+                      onClick: () => {
+                        window.open(
+                          `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}&destination_place_id=${encodeURIComponent(p.name + " parking Gent")}`,
+                          "_blank", "noopener"
+                        );
+                      },
+                    };
+                  })
+                  .filter(Boolean)}
+              />
+            )}
+          </div>
           <div className="bullet-grid">
             {isLoaded ? parkData.map((p, i) => (
               <BulletChart
@@ -517,6 +546,28 @@ export default function GhentOps() {
               </div>
               <span className="chip"><CircleAlert size={11} aria-hidden="true" /> Threshold 25 µg/m³</span>
             </header>
+            <div className="panel__map">
+              {isLoaded && (
+                <MiniMap
+                  height={180}
+                  markers={airData
+                    .map((s) => {
+                      const coords = lookupAirStation(s.station);
+                      if (!coords) return null;
+                      const st = airStatus(s.no2);
+                      return {
+                        lng: coords.lng,
+                        lat: coords.lat,
+                        color: st.color,
+                        size: 14 + s.no2 / 3,
+                        label: s.station,
+                        sublabel: `NO₂ ${s.no2} µg/m³ · ${st.label}`,
+                      };
+                    })
+                    .filter(Boolean)}
+                />
+              )}
+            </div>
             <div className="air-table" role="table" aria-label="Air quality readings by station">
               <div className="air-row air-row--head" role="row">
                 <span role="columnheader">Station</span>
@@ -606,20 +657,58 @@ export default function GhentOps() {
             </div>
             <span className="chip"><CalendarDays size={11} aria-hidden="true" /> Next 6 events</span>
           </header>
+          <div className="panel__map">
+            {isLoaded && (
+              <MiniMap
+                height={220}
+                markers={evData.slice(0, 6)
+                  .map((e, i) => {
+                    const coords = lookupVenue(e.where);
+                    if (!coords) return null;
+                    return {
+                      lng: coords.lng,
+                      lat: coords.lat,
+                      color: "#22C55E",
+                      size: 16,
+                      label: e.title,
+                      sublabel: `${e.where} · ${e.when}`,
+                      onClick: () => {
+                        window.open(
+                          `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.where + ", Gent")}`,
+                          "_blank", "noopener"
+                        );
+                      },
+                    };
+                  })
+                  .filter(Boolean)}
+              />
+            )}
+          </div>
           <div className="events-grid">
-            {isLoaded ? evData.slice(0, 6).map((e, i) => (
-              <a key={i} href="#" className="event" aria-label={`${e.title} at ${e.where}, ${e.when}`}>
-                <span className="event__num tabular">{String(i + 1).padStart(2, "0")}</span>
-                <div className="event__body">
-                  <div className="event__when tabular">{e.when}</div>
-                  <div className="event__title">{e.title}</div>
-                  <div className="event__where">
-                    <MapPin size={11} aria-hidden="true" /> {e.where}
+            {isLoaded ? evData.slice(0, 6).map((e, i) => {
+              // Open venue in Google Maps when clicking the card
+              const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((e.where || "Gent") + ", Gent")}`;
+              return (
+                <a
+                  key={i}
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="event"
+                  aria-label={`${e.title} at ${e.where}, ${e.when} — opens in Google Maps`}
+                >
+                  <span className="event__num tabular">{String(i + 1).padStart(2, "0")}</span>
+                  <div className="event__body">
+                    <div className="event__when tabular">{e.when}</div>
+                    <div className="event__title">{e.title}</div>
+                    <div className="event__where">
+                      <MapPin size={11} aria-hidden="true" /> {e.where}
+                    </div>
                   </div>
-                </div>
-                <ArrowUpRight size={14} className="event__arrow" aria-hidden="true" />
-              </a>
-            )) : Array.from({ length: 6 }).map((_, i) => (
+                  <ArrowUpRight size={14} className="event__arrow" aria-hidden="true" />
+                </a>
+              );
+            }) : Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="event"><Skeleton h={56} /></div>
             ))}
           </div>
@@ -986,6 +1075,12 @@ const css = `
   background: var(--muted);
   border: 1px solid var(--border-soft);
   border-radius: 99px;
+}
+
+.panel__map {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg);
 }
 
 /* ── BULLET CHART ───────────────────────────────────────────── */
