@@ -3,13 +3,14 @@ import {
   Activity, Wind, Car, Bike, CalendarDays, RefreshCw, Pause, Play,
   CircleAlert, CircleCheck, TrendingUp, TrendingDown, MapPin, ArrowUpRight,
   Zap, Radio, Sun, Cloud, CloudRain, CloudDrizzle, CloudSnow, CloudLightning,
-  CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass,
+  CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass, Music, Disc3,
 } from "lucide-react";
 import MiniMap, { lookupVenue, lookupParking, lookupAirStation } from "./MiniMap.jsx";
 import ThreeTowers from "./ThreeTowers.jsx";
 import {
   fetchWeather, describeWeather, gemOfTheDay,
   WATER_SPOTS, TRANSIT_STOPS, WASTE_DISTRICTS, nextWasteDay,
+  NIGHTLIFE_VENUES,
 } from "./ghent-data.js";
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -610,11 +611,43 @@ export default function GhentOps() {
           </div>
         </section>
 
+        {/* ── NIGHTLIFE ──────────────────────────────────────────────── */}
+        <section className="panel" aria-labelledby="nightlife-h">
+          <header className="panel__head">
+            <div>
+              <span className="panel__kicker">09 · NIGHTLIFE</span>
+              <h2 id="nightlife-h" className="panel__title">Tonight in the clubs</h2>
+            </div>
+            <span className="chip"><Disc3 size={11} aria-hidden="true" /> Tap for tonight's lineup</span>
+          </header>
+          <div className="nightlife-intro">
+            Ghent's club and live-music scene isn't in the city's open data — so this is hand-picked. Each tile opens where the venue actually announces tonight (usually Instagram).
+          </div>
+          <div className="venues-grid">
+            {NIGHTLIFE_VENUES.map((v, i) => (
+              <a key={i} href={v.url} target="_blank" rel="noopener noreferrer"
+                 className="venue" aria-label={`${v.name} — ${v.kind}, opens Instagram`}>
+                <div className="venue__head">
+                  <div className="venue__icon"><Music size={14} aria-hidden="true" /></div>
+                  <span className="venue__tag">{v.tag}</span>
+                </div>
+                <div className="venue__name">{v.name}</div>
+                <div className="venue__kind">{v.kind}</div>
+                <div className="venue__vibe">{v.vibe}</div>
+                <div className="venue__foot">
+                  <span className="venue__area"><MapPin size={10} aria-hidden="true" /> {v.area}</span>
+                  <ArrowUpRight size={12} className="venue__arrow" aria-hidden="true" />
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+
         {/* ── WASTE ──────────────────────────────────────────────────── */}
         <section className="panel" aria-labelledby="waste-h">
           <header className="panel__head">
             <div>
-              <span className="panel__kicker">09 · PRACTICAL</span>
+              <span className="panel__kicker">10 · PRACTICAL</span>
               <h2 id="waste-h" className="panel__title">Waste pickup schedule</h2>
             </div>
             <span className="chip"><Trash2 size={11} aria-hidden="true" /> IVAGO · Select district</span>
@@ -1011,6 +1044,88 @@ const css = `
 .event__arrow { color: var(--fg-dim); transition: color 150ms var(--ease), transform 150ms var(--ease); flex-shrink: 0; margin-top: 2px; }
 .event:hover .event__arrow { color: var(--accent); transform: translate(2px, -2px); }
 
+/* ── NIGHTLIFE ───────────────────────────────────────────────── */
+.nightlife-intro {
+  padding: 14px 20px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-soft);
+  font-style: italic;
+  line-height: 1.5;
+  max-width: 70ch;
+}
+.venues-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border-soft);
+}
+.venue {
+  display: flex; flex-direction: column;
+  gap: 6px; padding: 18px 20px 16px;
+  background: var(--bg-elev);
+  color: var(--fg); text-decoration: none;
+  transition: background 220ms var(--ease);
+  min-height: 160px;
+  position: relative;
+}
+.venue:hover { background: var(--surface); }
+.venue__head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.venue__icon {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  background: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent);
+  transition: background 180ms var(--ease), color 180ms var(--ease);
+}
+.venue:hover .venue__icon {
+  background: rgba(34,197,94,0.15);
+}
+.venue__tag {
+  font-family: var(--mono); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.15em; color: var(--fg-dim);
+  padding: 3px 6px; border-radius: 3px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-soft);
+}
+.venue__name {
+  font-weight: 600; font-size: 15px;
+  color: var(--fg); letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.venue__kind {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--accent); letter-spacing: 0.05em;
+  text-transform: lowercase;
+}
+.venue__vibe {
+  font-size: 12px; color: var(--fg-muted);
+  line-height: 1.4;
+  flex: 1;
+}
+.venue__foot {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-soft);
+}
+.venue__area {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; color: var(--fg-dim);
+}
+.venue__arrow {
+  color: var(--fg-dim);
+  transition: color 150ms var(--ease), transform 150ms var(--ease);
+}
+.venue:hover .venue__arrow {
+  color: var(--accent);
+  transform: translate(2px, -2px);
+}
+
 /* ── WASTE ───────────────────────────────────────────────────── */
 .waste { padding: 20px; }
 .waste__selector { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
@@ -1081,6 +1196,7 @@ const css = `
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .bullet-grid { grid-template-columns: repeat(2, 1fr); }
   .events-grid { grid-template-columns: repeat(2, 1fr); }
+  .venues-grid { grid-template-columns: repeat(2, 1fr); }
   .split-2 { grid-template-columns: 1fr; }
   .foot__content { grid-template-columns: 1fr; text-align: center; gap: 20px; }
   .foot__right { text-align: center; }
@@ -1091,6 +1207,7 @@ const css = `
   .kpi-grid { grid-template-columns: 1fr; }
   .bullet-grid { grid-template-columns: 1fr; }
   .events-grid { grid-template-columns: 1fr; }
+  .venues-grid { grid-template-columns: 1fr; }
   .waste__grid { grid-template-columns: 1fr; }
   .wx-grid { grid-template-columns: 1fr; }
   .stream-foot { grid-template-columns: 1fr 1fr; }
