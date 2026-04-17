@@ -1,33 +1,24 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
-  Activity,
-  Wind,
-  Car,
-  Bike,
-  CalendarDays,
-  RefreshCw,
-  Pause,
-  Play,
-  CircleAlert,
-  CircleCheck,
-  TrendingUp,
-  TrendingDown,
-  MapPin,
-  ArrowUpRight,
-  Zap,
-  Radio,
+  Activity, Wind, Car, Bike, CalendarDays, RefreshCw, Pause, Play,
+  CircleAlert, CircleCheck, TrendingUp, TrendingDown, MapPin, ArrowUpRight,
+  Zap, Radio, Sun, Cloud, CloudRain, CloudDrizzle, CloudSnow, CloudLightning,
+  CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass,
 } from "lucide-react";
 import MiniMap, { lookupVenue, lookupParking, lookupAirStation } from "./MiniMap.jsx";
+import ThreeTowers from "./ThreeTowers.jsx";
+import {
+  fetchWeather, describeWeather, flemishQuip, gemOfTheDay,
+  WATER_SPOTS, TRANSIT_STOPS, WASTE_DISTRICTS, nextWasteDay,
+} from "./ghent-data.js";
 
 // ═════════════════════════════════════════════════════════════════════════
-// GHENT · OPS — Real-Time Civic Operations Dashboard
-// Built to the ui-ux-pro-max spec: Real-Time Ops pattern, OLED dark, Fira.
-// Source: data.stad.gent (Opendatasoft v2.1 Explore API)
+// GHENT · LIVE — a civic dashboard, in the character of the city
 // ═════════════════════════════════════════════════════════════════════════
 
 const API = "/api/gent";
 
-// ── Realistic sample data so the dashboard never looks broken ─────────────
+// ── Realistic fallback data ──────────────────────────────────────────────
 const FALLBACK = {
   parking: [
     { name: "Kouter",            occupation: 78, total: 400,  free: 88 },
@@ -40,10 +31,10 @@ const FALLBACK = {
     { name: "Dampoort",          occupation: 71, total: 210,  free: 61 },
   ],
   air: [
-    { station: "Baudelo",             no2: 18, pm25: 9,  pm10: 14 },
+    { station: "Baudelo",              no2: 18, pm25: 9,  pm10: 14 },
     { station: "Lange Violettestraat", no2: 24, pm25: 11, pm10: 16 },
-    { station: "Muide",               no2: 31, pm25: 14, pm10: 22 },
-    { station: "Gent Centrum",        no2: 27, pm25: 12, pm10: 19 },
+    { station: "Muide",                no2: 31, pm25: 14, pm10: 22 },
+    { station: "Gent Centrum",         no2: 27, pm25: 12, pm10: 19 },
   ],
   events: [
     { title: "Gentse Feesten — Opening",    where: "Sint-Baafsplein",  when: "Today · 20:00" },
@@ -53,20 +44,37 @@ const FALLBACK = {
     { title: "Boekenbeurs Voorjaar",        where: "ICC Citadelpark",  when: "Next week" },
     { title: "NTGent — De Revisor",         where: "Sint-Baafsplein",  when: "Fri · 20:15" },
   ],
+  weather: { temp: 12, feels: 10, humidity: 72, code: 2, wind: 14, precip: 0.2, rainChance: 35, hourlyTemp: [] },
   pumps: 24,
 };
 
-// ── Status tokens (from the skill: green/amber/red, labeled not color-only)
+// ── Status tokens ────────────────────────────────────────────────────────
 const STATUS = {
   ok:    { color: "#22C55E", label: "Clear",    ring: "rgba(34,197,94,0.25)"  },
   warn:  { color: "#F59E0B", label: "Moderate", ring: "rgba(245,158,11,0.25)" },
   alert: { color: "#EF4444", label: "Critical", ring: "rgba(239,68,68,0.25)"  },
+  info:  { color: "#94A3B8", label: "Info",     ring: "rgba(148,163,184,0.25)" },
 };
 
 const occStatus = (o) => (o < 60 ? STATUS.ok : o < 85 ? STATUS.warn : STATUS.alert);
 const airStatus = (n) => (n < 25 ? STATUS.ok : n < 40 ? STATUS.warn : STATUS.alert);
 
-// ── API fetchers (Opendatasoft v2.1) ─────────────────────────────────────
+const weatherIcon = (iconName, size = 28) => {
+  const props = { size, strokeWidth: 1.5, "aria-hidden": true };
+  switch (iconName) {
+    case "sun":             return <Sun {...props} />;
+    case "cloud-sun":       return <Sun {...props} />;
+    case "cloud":           return <Cloud {...props} />;
+    case "cloud-rain":      return <CloudRain {...props} />;
+    case "cloud-drizzle":   return <CloudDrizzle {...props} />;
+    case "cloud-snow":      return <CloudSnow {...props} />;
+    case "cloud-lightning": return <CloudLightning {...props} />;
+    case "cloud-fog":       return <CloudFog {...props} />;
+    default:                return <Cloud {...props} />;
+  }
+};
+
+// ── API fetchers ─────────────────────────────────────────────────────────
 async function fetchParking() {
   const r = await fetch(`${API}?dataset=bezetting-parkeergarages-real-time&limit=20`);
   if (!r.ok) throw new Error("parking");
@@ -101,25 +109,18 @@ async function fetchEvents() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// COMPONENTS
+// Small components
 // ═════════════════════════════════════════════════════════════════════════
 
-// Skeleton pulse (per skill: high-severity loading feedback)
 const Skeleton = ({ w = "100%", h = 16, r = 4, style = {} }) => (
-  <div
-    className="skeleton"
-    style={{ width: w, height: h, borderRadius: r, ...style }}
-    aria-hidden="true"
-  />
+  <div className="skeleton" style={{ width: w, height: h, borderRadius: r, ...style }} aria-hidden="true" />
 );
 
-// Bullet chart — Performance vs Target (per skill: compact KPI dashboard)
-// Zones are labeled with threshold text (a11y, not color-only)
 const BulletChart = ({ value, total, label, sublabel }) => {
   const pct = Math.min(100, Math.max(0, (value / total) * 100));
   const status = occStatus(pct);
   return (
-    <div className="bullet" aria-label={`${label}: ${value} of ${total} occupied, ${Math.round(pct)}%`}>
+    <div className="bullet" aria-label={`${label}: ${value} of ${total} occupied`}>
       <div className="bullet__head">
         <div>
           <div className="bullet__label">{label}</div>
@@ -130,29 +131,17 @@ const BulletChart = ({ value, total, label, sublabel }) => {
         </div>
       </div>
       <div className="bullet__track" role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-        {/* Qualitative zones (labeled, not color-only) */}
         <div className="bullet__zone" style={{ left: "0%",  width: "60%", background: "rgba(34,197,94,0.10)" }} />
         <div className="bullet__zone" style={{ left: "60%", width: "25%", background: "rgba(245,158,11,0.12)" }} />
         <div className="bullet__zone" style={{ left: "85%", width: "15%", background: "rgba(239,68,68,0.14)" }} />
-        {/* Target markers at threshold boundaries */}
         <div className="bullet__mark" style={{ left: "60%" }} aria-hidden="true" />
         <div className="bullet__mark" style={{ left: "85%" }} aria-hidden="true" />
-        {/* Performance bar */}
-        <div
-          className="bullet__bar"
-          style={{ width: `${pct}%`, background: status.color, boxShadow: `0 0 12px ${status.ring}` }}
-        />
-      </div>
-      <div className="bullet__legend">
-        <span>Clear <em className="tabular">&lt;60%</em></span>
-        <span>Moderate <em className="tabular">60–85%</em></span>
-        <span>Critical <em className="tabular">&gt;85%</em></span>
+        <div className="bullet__bar" style={{ width: `${pct}%`, background: status.color, boxShadow: `0 0 12px ${status.ring}` }} />
       </div>
     </div>
   );
 };
 
-// Streaming area chart — Canvas-based, pausable, respects reduced-motion
 const StreamingArea = ({ data, paused, accent = "#22C55E", height = 120 }) => {
   const ref = useRef(null);
   useEffect(() => {
@@ -166,127 +155,80 @@ const StreamingArea = ({ data, paused, accent = "#22C55E", height = 120 }) => {
     const max = Math.max(...data) * 1.1;
     const min = Math.min(...data) * 0.9;
     const span = max - min || 1;
-    // Grid
-    ctx.strokeStyle = "rgba(71,85,105,0.25)";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(71,85,105,0.25)"; ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = (h / 4) * i;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
-    // Path
-    const pts = data.map((v, i) => [ (i / (data.length - 1)) * w, h - ((v - min) / span) * (h - 14) - 7 ]);
-    // Fade trail area
+    const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - ((v - min) / span) * (h - 14) - 7]);
     const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, accent + "55");
-    grad.addColorStop(1, accent + "00");
-    ctx.fillStyle = grad;
-    ctx.beginPath();
+    grad.addColorStop(0, accent + "55"); grad.addColorStop(1, accent + "00");
+    ctx.fillStyle = grad; ctx.beginPath();
     ctx.moveTo(pts[0][0], h);
     pts.forEach(([x, y]) => ctx.lineTo(x, y));
-    ctx.lineTo(pts[pts.length - 1][0], h);
-    ctx.closePath(); ctx.fill();
-    // Line
+    ctx.lineTo(pts[pts.length - 1][0], h); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = accent; ctx.lineWidth = 2;
     ctx.beginPath(); pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)); ctx.stroke();
-    // Current value pulse
     const [lx, ly] = pts[pts.length - 1];
-    ctx.fillStyle = accent;
-    ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.fill();
-    if (!paused) {
-      ctx.fillStyle = accent + "44";
-      ctx.beginPath(); ctx.arc(lx, ly, 10, 0, Math.PI * 2); ctx.fill();
-    }
+    ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.fill();
+    if (!paused) { ctx.fillStyle = accent + "44"; ctx.beginPath(); ctx.arc(lx, ly, 10, 0, Math.PI * 2); ctx.fill(); }
   }, [data, paused, accent, height]);
   return <canvas ref={ref} style={{ width: "100%", height, display: "block" }} aria-hidden="true" />;
 };
 
-// Anomaly marker line — shape (circle+fill) not color-only
-const AirAnomalyChart = ({ stations }) => {
-  const threshold = 25; // NO₂ µg/m³ (EU annual guide)
-  const w = 100, h = 30;
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} style={{ width: "100%", height: 44 }} role="img" aria-label="NO2 readings per station with anomaly markers above threshold">
-      {/* Alert band */}
-      <rect x="0" y="0" width={w} height={h * 0.35} fill="rgba(245,158,11,0.10)" />
-      <line x1="0" y1={h * 0.35} x2={w} y2={h * 0.35} stroke="rgba(245,158,11,0.5)" strokeDasharray="1 1" strokeWidth="0.3" />
-      {/* Connection line */}
-      {stations.length > 1 && (
-        <polyline
-          fill="none"
-          stroke="rgba(148,163,184,0.6)"
-          strokeWidth="0.5"
-          points={stations.map((s, i) => `${(i / (stations.length - 1)) * w},${h - (s.no2 / 50) * h}`).join(" ")}
-        />
-      )}
-      {/* Markers - filled circle + optional square for anomaly (shape not color) */}
-      {stations.map((s, i) => {
-        const x = (i / (stations.length - 1 || 1)) * w;
-        const y = h - (s.no2 / 50) * h;
-        const anomaly = s.no2 > threshold;
-        const color = airStatus(s.no2).color;
-        return (
-          <g key={i}>
-            <circle cx={x} cy={y} r={anomaly ? 1.8 : 1.2} fill={color} />
-            {anomaly && <rect x={x - 2} y={y - 2} width="4" height="4" fill="none" stroke={color} strokeWidth="0.4" />}
-          </g>
-        );
-      })}
+// Small ornamental divider — a stylized dragon (Belfry's weathervane symbol)
+const Ornament = () => (
+  <div className="ornament" aria-hidden="true">
+    <span className="ornament__line" />
+    <svg viewBox="0 0 40 16" width="36" height="14" fill="currentColor">
+      <path d="M 2 8 Q 8 2 14 8 Q 20 14 26 8 Q 32 2 38 8 L 36 8 Q 32 6 28 8 L 26 10 Q 20 14 14 10 L 12 8 Q 8 6 4 8 Z" />
+      <circle cx="20" cy="8" r="1" />
     </svg>
-  );
-};
+    <span className="ornament__line" />
+  </div>
+);
 
 // ═════════════════════════════════════════════════════════════════════════
 // MAIN
 // ═════════════════════════════════════════════════════════════════════════
 
-export default function GhentOps() {
-  const [parking,  setParking]  = useState(null);
-  const [air,      setAir]      = useState(null);
-  const [events,   setEvents]   = useState(null);
-  const [pumps,    setPumps]    = useState(FALLBACK.pumps);
-  const [liveMode, setLiveMode] = useState({ parking: false, air: false, events: false });
+export default function GhentLive() {
+  const [parking, setParking] = useState(null);
+  const [air, setAir]         = useState(null);
+  const [events, setEvents]   = useState(null);
+  const [weather, setWeather] = useState(null);
+  const [liveMode, setLiveMode] = useState({ parking: false, air: false, events: false, weather: false });
   const [lastUpdate, setLastUpdate] = useState(null);
-  const [loading,  setLoading]  = useState(false);
-  const [paused,   setPaused]   = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [paused, setPaused]     = useState(false);
+  const [wasteDistrict, setWasteDistrict] = useState("Binnenstad");
 
-  // Streaming bike-counter simulation (60s buffer, 1 Hz updates)
   const [bikeStream, setBikeStream] = useState(() => {
     const base = 4821;
-    return Array.from({ length: 60 }, (_, i) => base + Math.round(Math.sin(i / 6) * 80 + Math.random() * 40));
+    return Array.from({ length: 60 }, (_, i) =>
+      base + Math.round(Math.sin(i / 6) * 80 + Math.random() * 40)
+    );
   });
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    // parking
-    try {
-      const p = await fetchParking();
-      if (p.length) { setParking(p); setLiveMode((m) => ({ ...m, parking: true })); }
-      else          { setParking(FALLBACK.parking); }
-    } catch { setParking(FALLBACK.parking); }
-    // air
-    try {
-      const a = await fetchAir();
-      if (a.length) { setAir(a); setLiveMode((m) => ({ ...m, air: true })); }
-      else          { setAir(FALLBACK.air); }
-    } catch { setAir(FALLBACK.air); }
-    // events
-    try {
-      const e = await fetchEvents();
-      if (e.length) { setEvents(e); setLiveMode((m) => ({ ...m, events: true })); }
-      else          { setEvents(FALLBACK.events); }
-    } catch { setEvents(FALLBACK.events); }
-
-    setLastUpdate(new Date());
-    setLoading(false);
+    try { const p = await fetchParking(); if (p.length) { setParking(p); setLiveMode((m) => ({ ...m, parking: true })); } else setParking(FALLBACK.parking); }
+    catch { setParking(FALLBACK.parking); }
+    try { const a = await fetchAir(); if (a.length) { setAir(a); setLiveMode((m) => ({ ...m, air: true })); } else setAir(FALLBACK.air); }
+    catch { setAir(FALLBACK.air); }
+    try { const e = await fetchEvents(); if (e.length) { setEvents(e); setLiveMode((m) => ({ ...m, events: true })); } else setEvents(FALLBACK.events); }
+    catch { setEvents(FALLBACK.events); }
+    try { const w = await fetchWeather(); setWeather(w); setLiveMode((m) => ({ ...m, weather: true })); }
+    catch { setWeather(FALLBACK.weather); }
+    setLastUpdate(new Date()); setLoading(false);
   }, []);
 
   useEffect(() => { loadAll(); const id = setInterval(loadAll, 5 * 60 * 1000); return () => clearInterval(id); }, [loadAll]);
 
-  // Streaming tick (skill spec: 1 Hz, pausable, reduced-motion friendly)
   useEffect(() => {
     if (paused) return;
     const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) return; // freeze for reduced motion
+    if (reduce) return;
     const id = setInterval(() => {
       setBikeStream((s) => {
         const last = s[s.length - 1];
@@ -297,10 +239,11 @@ export default function GhentOps() {
     return () => clearInterval(id);
   }, [paused]);
 
-  // Derived KPIs
+  // Derived
   const parkData = parking || FALLBACK.parking;
   const airData  = air     || FALLBACK.air;
   const evData   = events  || FALLBACK.events;
+  const wxData   = weather || FALLBACK.weather;
 
   const totalSpaces = parkData.reduce((a, p) => a + p.total, 0);
   const freeSpaces  = parkData.reduce((a, p) => a + p.free, 0);
@@ -308,10 +251,9 @@ export default function GhentOps() {
   const cityStatus  = occStatus(cityOcc);
 
   const avgNo2 = airData.length ? Math.round(airData.reduce((a, s) => a + s.no2, 0) / airData.length) : 0;
-  const airAnom = airData.filter((s) => s.no2 > 25).length;
   const airKpiStatus = airStatus(avgNo2);
 
-  const bikeNow = bikeStream[bikeStream.length - 1];
+  const bikeNow  = bikeStream[bikeStream.length - 1];
   const bikePrev = bikeStream[0];
   const bikeTrend = bikeNow > bikePrev ? "up" : "down";
   const bikeDelta = Math.abs(Math.round(((bikeNow - bikePrev) / bikePrev) * 100));
@@ -319,444 +261,515 @@ export default function GhentOps() {
   const emptiest = [...parkData].sort((a, b) => a.occupation - b.occupation)[0];
   const fullest  = [...parkData].sort((a, b) => b.occupation - a.occupation)[0];
 
-  // Today's Call — opinionated recommendation
-  const call = useMemo(() => {
-    if (cityOcc > 85) return {
-      level: "alert",
-      head: "Parking critical — leave the car.",
-      body: `City garages at ${cityOcc}%. Tram 1 or a bike will get you there faster.`,
-    };
-    if (avgNo2 > 35) return {
-      level: "warn",
-      head: "Elevated NO₂ readings.",
-      body: `Average ${avgNo2} µg/m³ across ${airData.length} stations. Sensitive groups: consider quieter routes.`,
-    };
-    if (avgNo2 < 20 && cityOcc < 70) return {
-      level: "ok",
-      head: "Optimal conditions.",
-      body: `Air clean (NO₂ ${avgNo2} µg/m³), parking comfortable (${cityOcc}%). Good time to be out.`,
-    };
-    return {
-      level: "ok",
-      head: `${emptiest.name} is open — ${emptiest.free} free.`,
-      body: `Only ${emptiest.occupation}% full. Avoid ${fullest.name} (${fullest.occupation}%).`,
-    };
-  }, [cityOcc, avgNo2, emptiest, fullest, airData.length]);
+  const wxDesc  = describeWeather(wxData.code);
+  const quip    = flemishQuip(wxData);
+  const gem     = gemOfTheDay();
+  const waste   = WASTE_DISTRICTS.find((d) => d.district === wasteDistrict) || WASTE_DISTRICTS[0];
 
-  const isLoaded = parking && air && events;
+  const call = useMemo(() => {
+    if (cityOcc > 85) return { level: "alert", head: "Laat de auto staan — het is druk.", body: `Garages ${cityOcc}% vol. Neem de tram of de fiets.` };
+    if (avgNo2 > 35)  return { level: "warn",  head: "Lucht wat zwaarder vandaag.",  body: `NO₂ rond ${avgNo2} µg/m³ — rustige straten zijn een beter idee.` };
+    if (wxData.rainChance > 70) return { level: "warn", head: "Regen op komst.", body: "Paraplu mee. De Leie wordt nat, maar zo is het hier nu eenmaal." };
+    if (avgNo2 < 20 && cityOcc < 70 && wxData.code <= 2) return { level: "ok", head: "Een zeldzame perfecte dag.", body: `Lucht fris (NO₂ ${avgNo2}), ${wxData.temp}°C, en rustig op de baan. Graslei roept.` };
+    return { level: "ok", head: `${emptiest.name} is open — ${emptiest.free} plaatsen vrij.`, body: `Slechts ${emptiest.occupation}% vol. Vermijd ${fullest.name} (${fullest.occupation}%).` };
+  }, [cityOcc, avgNo2, wxData, emptiest, fullest]);
+
+  const isLoaded = parking && air && events && weather;
 
   return (
-    <div className="ops-root">
+    <div className="gl-root">
       <style>{css}</style>
+      <a href="#main" className="skip">Ga naar inhoud</a>
 
-      {/* Skip link for keyboard users */}
-      <a href="#main" className="skip">Skip to main content</a>
-
-      {/* ─── STATUS BAR ───────────────────────────────────────────── */}
-      <header className="topbar" role="banner">
-        <div className="topbar__left">
-          <div className="logo">
-            <Radio size={16} strokeWidth={2.5} aria-hidden="true" />
-            <span className="logo__text">GHENT · OPS</span>
-          </div>
-          <span className="topbar__sep" aria-hidden="true">/</span>
-          <span className="topbar__crumb">Civic Operations · Live</span>
+      {/* ═══ MASTHEAD ═══════════════════════════════════════════════════ */}
+      <header className="mast" role="banner">
+        <div className="mast__skyline" aria-hidden="true">
+          <ThreeTowers height={140} color="#2a3850" opacity={0.55} />
         </div>
-
-        <div className="topbar__right" role="status" aria-live="polite">
-          <div className="conn">
-            <span className={`conn__dot ${liveMode.parking || liveMode.air ? "live" : "sample"}`} aria-hidden="true" />
-            <span className="conn__label tabular">
-              {liveMode.parking || liveMode.air ? "LIVE" : "SAMPLE"}
-            </span>
+        <div className="mast__content">
+          <div className="mast__top">
+            <div className="mast__left">
+              <span className="mast__date">
+                {new Date().toLocaleDateString("nl-BE", { weekday: "long", day: "numeric", month: "long" })}
+              </span>
+            </div>
+            <div className="mast__center">
+              <div className="mast__eyebrow">
+                {/* Heraldic lion glyph — stylized from Ghent's coat of arms */}
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                  <path d="M 4 12 Q 4 6 10 4 L 12 6 L 14 4 Q 20 6 20 12 L 19 14 L 20 18 L 17 19 L 16 16 L 13 17 L 14 20 L 10 20 L 11 17 L 8 16 L 7 19 L 4 18 L 5 14 Z M 9 10 L 11 11 L 9 12 Z M 15 10 L 13 11 L 15 12 Z" />
+                </svg>
+                <span>De Stad · Real-Time · MMXXVI</span>
+              </div>
+              <h1 className="mast__title">
+                <span className="mast__title-main">Gent</span>
+                <span className="mast__title-sep">·</span>
+                <span className="mast__title-sub">Live</span>
+              </h1>
+              <div className="mast__sub">{quip}</div>
+            </div>
+            <div className="mast__right" role="status" aria-live="polite">
+              <div className="conn">
+                <span className={`conn__dot ${Object.values(liveMode).some(Boolean) ? "live" : "sample"}`} aria-hidden="true" />
+                <span className="conn__label tabular">{Object.values(liveMode).some(Boolean) ? "LIVE" : "SAMPLE"}</span>
+              </div>
+              <div className="mast__time tabular">
+                {lastUpdate ? lastUpdate.toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" }) : "—"}
+              </div>
+              <button className="btn btn--ghost" onClick={loadAll} disabled={loading} aria-label="Refresh data">
+                <RefreshCw size={12} className={loading ? "spin" : ""} aria-hidden="true" />
+                <span>Ververs</span>
+              </button>
+            </div>
           </div>
-          <div className="topbar__time tabular">
-            {lastUpdate ? lastUpdate.toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
-          </div>
-          <button
-            className="btn btn--ghost"
-            onClick={loadAll}
-            disabled={loading}
-            aria-label="Refresh data"
-          >
-            <RefreshCw size={13} className={loading ? "spin" : ""} aria-hidden="true" />
-            <span>Refresh</span>
-          </button>
         </div>
       </header>
 
       <main id="main" className="main">
 
-        {/* ─── HERO: TODAY'S CALL + KPI GRID ─────────────────────── */}
+        {/* ═══ TODAY'S CALL (hero) ══════════════════════════════════════ */}
         <section className="hero" aria-labelledby="call-h">
           <article className={`call call--${call.level}`} aria-live="polite">
             <div className="call__header">
               <span className={`call__badge call__badge--${call.level}`}>
-                {call.level === "alert" ? <CircleAlert size={12} aria-hidden="true" /> :
-                 call.level === "warn"  ? <CircleAlert size={12} aria-hidden="true" /> :
-                                          <CircleCheck size={12} aria-hidden="true" />}
-                {call.level === "alert" ? "CRITICAL" : call.level === "warn" ? "MODERATE" : "ALL CLEAR"}
+                {call.level === "alert" ? <CircleAlert size={11} aria-hidden="true" /> :
+                 call.level === "warn"  ? <CircleAlert size={11} aria-hidden="true" /> :
+                                          <CircleCheck size={11} aria-hidden="true" />}
+                {call.level === "alert" ? "OPGEPAST" : call.level === "warn" ? "LET OP" : "ALLES GOED"}
               </span>
-              <span className="call__kicker">TODAY'S CALL · {new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}</span>
+              <span className="call__kicker">VANDAAG IN GENT</span>
             </div>
-            <h1 id="call-h" className="call__head">
-              {isLoaded ? call.head : <Skeleton h={38} w="85%" />}
-            </h1>
-            <p className="call__body">
-              {isLoaded ? call.body : <><Skeleton h={14} w="90%" style={{ marginBottom: 6 }} /><Skeleton h={14} w="70%" /></>}
-            </p>
+            <h2 id="call-h" className="call__head">{isLoaded ? call.head : <Skeleton h={38} w="85%" />}</h2>
+            <p className="call__body">{isLoaded ? call.body : <Skeleton h={14} w="90%" />}</p>
             <div className="call__meta">
-              <span><Zap size={11} aria-hidden="true" /> Updated from {[liveMode.parking, liveMode.air, liveMode.events].filter(Boolean).length || 0} live streams</span>
+              <span><Zap size={11} aria-hidden="true" /> Gevoed door {Object.values(liveMode).filter(Boolean).length} live databronnen</span>
             </div>
           </article>
 
+          {/* KPI strip */}
           <div className="kpi-grid" role="list">
-            <div className="kpi" role="listitem" aria-label={`Parking: ${cityOcc}% full city-wide, ${cityStatus.label.toLowerCase()}`}>
-              <div className="kpi__head">
-                <Car size={14} aria-hidden="true" />
-                <span className="kpi__title">Parking</span>
-                <span className={`dot dot--${cityStatus === STATUS.ok ? "ok" : cityStatus === STATUS.warn ? "warn" : "alert"}`} aria-hidden="true" />
-              </div>
-              <div className="kpi__value tabular">
-                {isLoaded ? cityOcc : "—"}<span className="kpi__unit">%</span>
-              </div>
-              <div className="kpi__sub tabular">
-                {isLoaded ? `${freeSpaces.toLocaleString()} / ${totalSpaces.toLocaleString()} free` : <Skeleton h={12} w={120} />}
-              </div>
-              <div className="kpi__mini-bar">
-                <div className="kpi__mini-fill" style={{ width: `${cityOcc}%`, background: cityStatus.color }} />
-              </div>
+            <div className="kpi" role="listitem">
+              <div className="kpi__head"><Car size={12} aria-hidden="true" /><span className="kpi__title">Parking</span>
+                <span className={`dot dot--${cityStatus === STATUS.ok ? "ok" : cityStatus === STATUS.warn ? "warn" : "alert"}`} aria-hidden="true" /></div>
+              <div className="kpi__value tabular">{isLoaded ? cityOcc : "—"}<span className="kpi__unit">%</span></div>
+              <div className="kpi__sub tabular">{isLoaded ? `${freeSpaces.toLocaleString()} vrij` : <Skeleton h={12} w={80} />}</div>
+              <div className="kpi__mini-bar"><div className="kpi__mini-fill" style={{ width: `${cityOcc}%`, background: cityStatus.color }} /></div>
             </div>
-
-            <div className="kpi" role="listitem" aria-label={`Air quality: NO2 average ${avgNo2} micrograms per cubic meter, ${airKpiStatus.label.toLowerCase()}`}>
-              <div className="kpi__head">
-                <Wind size={14} aria-hidden="true" />
-                <span className="kpi__title">Air · NO₂</span>
-                <span className={`dot dot--${airKpiStatus === STATUS.ok ? "ok" : airKpiStatus === STATUS.warn ? "warn" : "alert"}`} aria-hidden="true" />
-              </div>
-              <div className="kpi__value tabular">
-                {isLoaded ? avgNo2 : "—"}<span className="kpi__unit">µg/m³</span>
-              </div>
-              <div className="kpi__sub">
-                {isLoaded ? `${airKpiStatus.label} · ${airAnom} station${airAnom === 1 ? "" : "s"} elevated` : <Skeleton h={12} w={140} />}
-              </div>
-              <div className="kpi__mini-chart">
-                {isLoaded && <AirAnomalyChart stations={airData} />}
-              </div>
+            <div className="kpi" role="listitem">
+              <div className="kpi__head"><Wind size={12} aria-hidden="true" /><span className="kpi__title">Lucht · NO₂</span>
+                <span className={`dot dot--${airKpiStatus === STATUS.ok ? "ok" : airKpiStatus === STATUS.warn ? "warn" : "alert"}`} aria-hidden="true" /></div>
+              <div className="kpi__value tabular">{isLoaded ? avgNo2 : "—"}<span className="kpi__unit">µg/m³</span></div>
+              <div className="kpi__sub">{isLoaded ? airKpiStatus.label : <Skeleton h={12} w={80} />}</div>
             </div>
-
-            <div className="kpi" role="listitem" aria-label={`Bike counter: ${bikeNow} cyclists today, trend ${bikeTrend}`}>
-              <div className="kpi__head">
-                <Bike size={14} aria-hidden="true" />
-                <span className="kpi__title">Bike counter</span>
-                <span className="dot dot--ok" aria-hidden="true" />
-              </div>
+            <div className="kpi" role="listitem">
+              <div className="kpi__head">{weatherIcon(wxDesc.icon, 12)}<span className="kpi__title">Weer</span>
+                <span className="dot dot--ok" aria-hidden="true" /></div>
+              <div className="kpi__value tabular">{wxData.temp}<span className="kpi__unit">°C</span></div>
+              <div className="kpi__sub">voelt als {wxData.feels}° · {wxDesc.label.toLowerCase()}</div>
+            </div>
+            <div className="kpi" role="listitem">
+              <div className="kpi__head"><Bike size={12} aria-hidden="true" /><span className="kpi__title">Fietsen</span>
+                <span className="dot dot--ok" aria-hidden="true" /></div>
               <div className="kpi__value tabular">{bikeNow.toLocaleString()}</div>
               <div className="kpi__sub">
                 <span className={`trend trend--${bikeTrend}`}>
                   {bikeTrend === "up" ? <TrendingUp size={11} aria-hidden="true" /> : <TrendingDown size={11} aria-hidden="true" />}
                   <span className="tabular">{bikeDelta}%</span>
                 </span>
-                <span className="kpi__sub-text"> past minute</span>
-              </div>
-              <div className="kpi__stream">
-                <StreamingArea data={bikeStream} paused={paused} accent="#22C55E" height={32} />
-              </div>
-            </div>
-
-            <div className="kpi" role="listitem" aria-label={`${evData.length} cultural events coming up`}>
-              <div className="kpi__head">
-                <CalendarDays size={14} aria-hidden="true" />
-                <span className="kpi__title">Events</span>
-                <span className="dot dot--ok" aria-hidden="true" />
-              </div>
-              <div className="kpi__value tabular">{evData.length}</div>
-              <div className="kpi__sub">coming up this week</div>
-              <div className="kpi__pills">
-                {["music", "theatre", "film", "market"].map((t) => (
-                  <span key={t} className="pill">{t}</span>
-                ))}
               </div>
             </div>
           </div>
         </section>
 
-        {/* ─── PARKING · BULLET GRID ──────────────────────────────── */}
+        <Ornament />
+
+        {/* ═══ RIGHT NOW: weather + air ═════════════════════════════════ */}
+        <h3 className="section-title">
+          <span className="section-title__num">I.</span>
+          <span className="section-title__main">Op dit moment</span>
+          <span className="section-title__sub">— wat hangt er in de lucht</span>
+        </h3>
+        <section className="split-2">
+          {/* Weather card */}
+          <div className="panel panel--weather" aria-labelledby="wx-h">
+            <header className="panel__head">
+              <div>
+                <span className="panel__kicker">Het Weer</span>
+                <h2 id="wx-h" className="panel__title">{wxDesc.label} · {wxData.temp}°C</h2>
+              </div>
+              <div className="wx-icon">{weatherIcon(wxDesc.icon, 42)}</div>
+            </header>
+            <div className="wx-grid">
+              <div className="wx-stat">
+                <span className="wx-stat__k">Voelt als</span>
+                <span className="wx-stat__v tabular">{wxData.feels}°</span>
+              </div>
+              <div className="wx-stat">
+                <span className="wx-stat__k">Wind</span>
+                <span className="wx-stat__v tabular">{wxData.wind} <em>km/h</em></span>
+              </div>
+              <div className="wx-stat">
+                <span className="wx-stat__k">Vochtigheid</span>
+                <span className="wx-stat__v tabular">{wxData.humidity}%</span>
+              </div>
+              <div className="wx-stat">
+                <span className="wx-stat__k">Kans op regen (6u)</span>
+                <span className="wx-stat__v tabular" style={{ color: wxData.rainChance > 60 ? "#60A5FA" : "var(--fg)" }}>
+                  {wxData.rainChance}%
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Air quality with map + table */}
+          <div className="panel" aria-labelledby="air-h">
+            <header className="panel__head">
+              <div>
+                <span className="panel__kicker">Luchtkwaliteit</span>
+                <h2 id="air-h" className="panel__title">Wat je ademt</h2>
+              </div>
+              <span className="chip"><CircleAlert size={10} aria-hidden="true" /> Drempel 25 µg/m³</span>
+            </header>
+            <div className="panel__map">
+              {isLoaded && (
+                <MiniMap height={180} markers={airData.map((s) => {
+                  const c = lookupAirStation(s.station); if (!c) return null;
+                  const st = airStatus(s.no2);
+                  return { lng: c.lng, lat: c.lat, color: st.color, size: 14 + s.no2 / 3, label: s.station, sublabel: `NO₂ ${s.no2} µg/m³ · ${st.label}` };
+                }).filter(Boolean)} />
+              )}
+            </div>
+            <div className="air-compact">
+              {isLoaded ? airData.map((s, i) => {
+                const st = airStatus(s.no2); const key = st === STATUS.ok ? "ok" : st === STATUS.warn ? "warn" : "alert";
+                return (
+                  <div key={i} className="air-compact__row">
+                    <span className="air-compact__name">{s.station}</span>
+                    <span className="air-compact__val tabular" style={{ color: st.color }}>{s.no2} <em>µg/m³</em></span>
+                    <span className={`badge badge--${key}`}><span className={`dot dot--${key}`} aria-hidden="true" />{st.label}</span>
+                  </div>
+                );
+              }) : <Skeleton h={80} />}
+            </div>
+          </div>
+        </section>
+
+        <Ornament />
+
+        {/* ═══ GETTING AROUND: parking + transit + bikes ════════════════ */}
+        <h3 className="section-title">
+          <span className="section-title__num">II.</span>
+          <span className="section-title__main">Onderweg</span>
+          <span className="section-title__sub">— hoe je door de stad beweegt</span>
+        </h3>
+
         <section className="panel" aria-labelledby="parking-h">
           <header className="panel__head">
             <div>
-              <span className="panel__kicker">01 · MOBILITY</span>
-              <h2 id="parking-h" className="panel__title">Parking garages</h2>
+              <span className="panel__kicker">Parkeren</span>
+              <h2 id="parking-h" className="panel__title">Waar je de auto kwijt kan</h2>
             </div>
-            <div className="panel__tools">
-              <span className="chip"><Activity size={11} aria-hidden="true" /> Real-time · Occupancy vs capacity</span>
-            </div>
+            <span className="chip"><Activity size={10} aria-hidden="true" /> Real-time</span>
           </header>
           <div className="panel__map">
             {isLoaded && (
-              <MiniMap
-                height={220}
-                markers={parkData
-                  .map((p) => {
-                    const coords = lookupParking(p.name);
-                    if (!coords) return null;
-                    const st = occStatus(p.occupation);
-                    return {
-                      lng: coords.lng,
-                      lat: coords.lat,
-                      color: st.color,
-                      size: 12 + Math.sqrt(p.total) / 4,
-                      label: p.name,
-                      sublabel: `${p.occupation}% full · ${p.free} free`,
-                      onClick: () => {
-                        window.open(
-                          `https://www.google.com/maps/dir/?api=1&destination=${coords.lat},${coords.lng}&destination_place_id=${encodeURIComponent(p.name + " parking Gent")}`,
-                          "_blank", "noopener"
-                        );
-                      },
-                    };
-                  })
-                  .filter(Boolean)}
-              />
+              <MiniMap height={220} markers={parkData.map((p) => {
+                const c = lookupParking(p.name); if (!c) return null;
+                const st = occStatus(p.occupation);
+                return {
+                  lng: c.lng, lat: c.lat, color: st.color,
+                  size: 12 + Math.sqrt(p.total) / 4,
+                  label: p.name, sublabel: `${p.occupation}% vol · ${p.free} vrij`,
+                  onClick: () => window.open(`https://www.google.com/maps/dir/?api=1&destination=${c.lat},${c.lng}`, "_blank", "noopener"),
+                };
+              }).filter(Boolean)} />
             )}
           </div>
           <div className="bullet-grid">
             {isLoaded ? parkData.map((p, i) => (
-              <BulletChart
-                key={i}
-                value={p.total - p.free}
-                total={p.total}
-                label={p.name}
-                sublabel={`${p.free} free of ${p.total}`}
-              />
-            )) : Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="bullet"><Skeleton h={70} /></div>
-            ))}
+              <BulletChart key={i} value={p.total - p.free} total={p.total} label={p.name} sublabel={`${p.free} vrij van ${p.total}`} />
+            )) : Array.from({ length: 8 }).map((_, i) => <div key={i} className="bullet"><Skeleton h={70} /></div>)}
           </div>
         </section>
 
-        {/* ─── AIR + BIKES ────────────────────────────────────────── */}
-        <section className="split" aria-label="Environment and cycling">
-
-          <div className="panel" aria-labelledby="air-h">
+        <section className="split-2" aria-label="Openbaar vervoer en fietsen">
+          {/* Transit (De Lijn) */}
+          <div className="panel" aria-labelledby="transit-h">
             <header className="panel__head">
               <div>
-                <span className="panel__kicker">02 · ENVIRONMENT</span>
-                <h2 id="air-h" className="panel__title">Air quality stations</h2>
+                <span className="panel__kicker">De Lijn</span>
+                <h2 id="transit-h" className="panel__title">Tram & bus haltes</h2>
               </div>
-              <span className="chip"><CircleAlert size={11} aria-hidden="true" /> Threshold 25 µg/m³</span>
+              <span className="chip"><Train size={10} aria-hidden="true" /> Centraal</span>
             </header>
-            <div className="panel__map">
-              {isLoaded && (
-                <MiniMap
-                  height={180}
-                  markers={airData
-                    .map((s) => {
-                      const coords = lookupAirStation(s.station);
-                      if (!coords) return null;
-                      const st = airStatus(s.no2);
-                      return {
-                        lng: coords.lng,
-                        lat: coords.lat,
-                        color: st.color,
-                        size: 14 + s.no2 / 3,
-                        label: s.station,
-                        sublabel: `NO₂ ${s.no2} µg/m³ · ${st.label}`,
-                      };
-                    })
-                    .filter(Boolean)}
-                />
-              )}
-            </div>
-            <div className="air-table" role="table" aria-label="Air quality readings by station">
-              <div className="air-row air-row--head" role="row">
-                <span role="columnheader">Station</span>
-                <span role="columnheader" className="tabular">NO₂</span>
-                <span role="columnheader" className="tabular">PM2.5</span>
-                <span role="columnheader" className="tabular">PM10</span>
-                <span role="columnheader">Status</span>
-              </div>
-              {isLoaded ? airData.map((s, i) => {
-                const st = airStatus(s.no2);
-                const key = st === STATUS.ok ? "ok" : st === STATUS.warn ? "warn" : "alert";
-                return (
-                  <div className="air-row" role="row" key={i}>
-                    <span role="cell" className="air-station">{s.station}</span>
-                    <span role="cell" className="tabular">
-                      <span style={{ color: st.color, fontWeight: 600 }}>{s.no2}</span>
-                      <span className="air-bar">
-                        <span className="air-bar__fill" style={{ width: `${Math.min(100, (s.no2 / 50) * 100)}%`, background: st.color }} />
-                      </span>
-                    </span>
-                    <span role="cell" className="tabular">{s.pm25}</span>
-                    <span role="cell" className="tabular">{s.pm10}</span>
-                    <span role="cell">
-                      <span className={`badge badge--${key}`}>
-                        <span className={`dot dot--${key}`} aria-hidden="true" />
-                        {st.label}
-                      </span>
-                    </span>
+            <div className="transit-list">
+              {TRANSIT_STOPS.map((s, i) => (
+                <a key={i} href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name + " halte Gent")}`}
+                   target="_blank" rel="noopener noreferrer" className="transit">
+                  <div className="transit__icon"><Train size={14} aria-hidden="true" /></div>
+                  <div className="transit__body">
+                    <div className="transit__name">{s.name}</div>
+                    <div className="transit__lines">
+                      {s.lines.map((l) => <span key={l} className="line-badge">{l}</span>)}
+                    </div>
                   </div>
-                );
-              }) : Array.from({ length: 4 }).map((_, i) => (
-                <div className="air-row" key={i}><Skeleton h={18} /></div>
+                  <ArrowUpRight size={12} className="transit__arrow" aria-hidden="true" />
+                </a>
               ))}
             </div>
           </div>
 
+          {/* Bikes */}
           <div className="panel panel--accent" aria-labelledby="bike-h">
             <header className="panel__head">
               <div>
-                <span className="panel__kicker">03 · CYCLING</span>
-                <h2 id="bike-h" className="panel__title">Bike stream</h2>
+                <span className="panel__kicker">Fietstelling</span>
+                <h2 id="bike-h" className="panel__title">Op twee wielen</h2>
               </div>
-              <button
-                className="btn btn--ghost"
-                onClick={() => setPaused((p) => !p)}
-                aria-label={paused ? "Resume streaming" : "Pause streaming"}
-                aria-pressed={paused}
-              >
-                {paused ? <Play size={12} aria-hidden="true" /> : <Pause size={12} aria-hidden="true" />}
-                <span>{paused ? "Resume" : "Pause"}</span>
+              <button className="btn btn--ghost" onClick={() => setPaused((p) => !p)} aria-pressed={paused} aria-label={paused ? "Resume" : "Pause"}>
+                {paused ? <Play size={11} aria-hidden="true" /> : <Pause size={11} aria-hidden="true" />}
+                <span>{paused ? "Verder" : "Pauzeer"}</span>
               </button>
             </header>
-            <div className="stream-big" aria-live={paused ? "off" : "polite"} aria-atomic="true">
+            <div className="stream-big">
               <div className="stream-big__value tabular">{bikeNow.toLocaleString()}</div>
-              <div className="stream-big__label">cyclists · rolling today</div>
+              <div className="stream-big__label">fietsers vandaag · centrum</div>
             </div>
-            <div className="stream-canvas">
-              <StreamingArea data={bikeStream} paused={paused} accent="#22C55E" height={140} />
-            </div>
+            <div className="stream-canvas"><StreamingArea data={bikeStream} paused={paused} accent="#22C55E" height={120} /></div>
             <div className="stream-foot">
+              <div><span className="foot__k">Pompen</span><span className="foot__v tabular">{FALLBACK.pumps}</span></div>
+              <div><span className="foot__k">Fietsstraten</span><span className="foot__v tabular">63 <em>km</em></span></div>
+              <div><span className="foot__k">Reparatiepunten</span><span className="foot__v tabular">47</span></div>
+            </div>
+          </div>
+        </section>
+
+        <Ornament />
+
+        {/* ═══ THE CITY OUTDOORS: water + gem ═══════════════════════════ */}
+        <h3 className="section-title">
+          <span className="section-title__num">III.</span>
+          <span className="section-title__main">Buiten de deur</span>
+          <span className="section-title__sub">— water, plekken, een beetje ontdekken</span>
+        </h3>
+        <section className="split-2">
+          {/* Water quality */}
+          <div className="panel" aria-labelledby="water-h">
+            <header className="panel__head">
               <div>
-                <span className="foot__k">Pumps</span>
-                <span className="foot__v tabular">{pumps}</span>
+                <span className="panel__kicker">Zwemwater</span>
+                <h2 id="water-h" className="panel__title">Kan ik erin?</h2>
               </div>
+              <span className="chip"><Waves size={10} aria-hidden="true" /> Seizoen</span>
+            </header>
+            <div className="water-list">
+              {WATER_SPOTS.map((s, i) => {
+                const st = STATUS[s.status] || STATUS.info;
+                const key = s.status;
+                return (
+                  <a key={i} href={`https://www.google.com/maps/search/?api=1&query=${s.coords.lat},${s.coords.lng}`}
+                     target="_blank" rel="noopener noreferrer" className="water">
+                    <Droplets size={18} style={{ color: st.color, flexShrink: 0 }} aria-hidden="true" />
+                    <div className="water__body">
+                      <div className="water__name">{s.name}</div>
+                      <div className="water__kind">{s.kind}</div>
+                      <div className="water__note">{s.note}</div>
+                    </div>
+                    <span className={`badge badge--${key}`}>{st.label}</span>
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Gem of the day */}
+          <div className="panel panel--gem" aria-labelledby="gem-h">
+            <header className="panel__head">
               <div>
-                <span className="foot__k">Bike streets</span>
-                <span className="foot__v tabular">63 km</span>
+                <span className="panel__kicker">Plekje van de dag</span>
+                <h2 id="gem-h" className="panel__title">Een minder bekende hoek</h2>
               </div>
-              <div>
-                <span className="foot__k">Repair pts</span>
-                <span className="foot__v tabular">47</span>
+              <Sparkles size={16} style={{ color: "var(--oxblood)" }} aria-hidden="true" />
+            </header>
+            <div className="gem">
+              <div className="gem__name">{gem.name}</div>
+              <p className="gem__tagline">{gem.tagline}</p>
+              <div className="gem__tip">
+                <Compass size={12} aria-hidden="true" />
+                <span>{gem.tip}</span>
               </div>
-              <div>
-                <span className="foot__k">Peak hour</span>
-                <span className="foot__v tabular">08:15</span>
+              <a className="gem__link" href={`https://www.google.com/maps/search/?api=1&query=${gem.coords.lat},${gem.coords.lng}`}
+                 target="_blank" rel="noopener noreferrer">
+                <MapPin size={11} aria-hidden="true" />
+                <span>Open op kaart</span>
+                <ArrowUpRight size={11} aria-hidden="true" />
+              </a>
+              <div className="gem__mini-map">
+                <MiniMap height={140} center={[gem.coords.lng, gem.coords.lat]} zoom={15} markers={[{ lng: gem.coords.lng, lat: gem.coords.lat, color: "#A8323A", size: 18, label: gem.name, sublabel: gem.tagline }]} />
               </div>
             </div>
           </div>
         </section>
 
-        {/* ─── EVENTS ─────────────────────────────────────────────── */}
+        <Ornament />
+
+        {/* ═══ WHAT'S ON: events ═══════════════════════════════════════ */}
+        <h3 className="section-title">
+          <span className="section-title__num">IV.</span>
+          <span className="section-title__main">Wat is er te doen</span>
+          <span className="section-title__sub">— cultuur, concerten, markten</span>
+        </h3>
         <section className="panel" aria-labelledby="events-h">
           <header className="panel__head">
             <div>
-              <span className="panel__kicker">04 · CULTURE</span>
-              <h2 id="events-h" className="panel__title">Upcoming in the city</h2>
+              <span className="panel__kicker">Agenda</span>
+              <h2 id="events-h" className="panel__title">Komende dagen</h2>
             </div>
-            <span className="chip"><CalendarDays size={11} aria-hidden="true" /> Next 6 events</span>
+            <span className="chip"><CalendarDays size={10} aria-hidden="true" /> 6 events</span>
           </header>
           <div className="panel__map">
             {isLoaded && (
-              <MiniMap
-                height={220}
-                markers={evData.slice(0, 6)
-                  .map((e, i) => {
-                    const coords = lookupVenue(e.where);
-                    if (!coords) return null;
-                    return {
-                      lng: coords.lng,
-                      lat: coords.lat,
-                      color: "#22C55E",
-                      size: 16,
-                      label: e.title,
-                      sublabel: `${e.where} · ${e.when}`,
-                      onClick: () => {
-                        window.open(
-                          `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.where + ", Gent")}`,
-                          "_blank", "noopener"
-                        );
-                      },
-                    };
-                  })
-                  .filter(Boolean)}
-              />
+              <MiniMap height={200} markers={evData.slice(0, 6).map((e) => {
+                const c = lookupVenue(e.where); if (!c) return null;
+                return {
+                  lng: c.lng, lat: c.lat, color: "#A8323A", size: 16, label: e.title, sublabel: `${e.where} · ${e.when}`,
+                  onClick: () => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.where + ", Gent")}`, "_blank", "noopener"),
+                };
+              }).filter(Boolean)} />
             )}
           </div>
           <div className="events-grid">
             {isLoaded ? evData.slice(0, 6).map((e, i) => {
-              // Open venue in Google Maps when clicking the card
               const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((e.where || "Gent") + ", Gent")}`;
               return (
-                <a
-                  key={i}
-                  href={mapsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="event"
-                  aria-label={`${e.title} at ${e.where}, ${e.when} — opens in Google Maps`}
-                >
+                <a key={i} href={mapsUrl} target="_blank" rel="noopener noreferrer" className="event" aria-label={`${e.title} at ${e.where}, ${e.when}`}>
                   <span className="event__num tabular">{String(i + 1).padStart(2, "0")}</span>
                   <div className="event__body">
                     <div className="event__when tabular">{e.when}</div>
                     <div className="event__title">{e.title}</div>
-                    <div className="event__where">
-                      <MapPin size={11} aria-hidden="true" /> {e.where}
-                    </div>
+                    <div className="event__where"><MapPin size={10} aria-hidden="true" /> {e.where}</div>
                   </div>
-                  <ArrowUpRight size={14} className="event__arrow" aria-hidden="true" />
+                  <ArrowUpRight size={12} className="event__arrow" aria-hidden="true" />
                 </a>
               );
-            }) : Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="event"><Skeleton h={56} /></div>
-            ))}
+            }) : Array.from({ length: 6 }).map((_, i) => <div key={i} className="event"><Skeleton h={56} /></div>)}
+          </div>
+        </section>
+
+        <Ornament />
+
+        {/* ═══ PRACTICAL: waste pickup ═════════════════════════════════ */}
+        <h3 className="section-title">
+          <span className="section-title__num">V.</span>
+          <span className="section-title__main">Praktisch</span>
+          <span className="section-title__sub">— dingen die je moet weten</span>
+        </h3>
+        <section className="panel" aria-labelledby="waste-h">
+          <header className="panel__head">
+            <div>
+              <span className="panel__kicker">IVAGO · Afvalkalender</span>
+              <h2 id="waste-h" className="panel__title">Wanneer komt het vuilnis?</h2>
+            </div>
+            <span className="chip"><Trash2 size={10} aria-hidden="true" /> Selecteer wijk</span>
+          </header>
+          <div className="waste">
+            <div className="waste__selector">
+              {WASTE_DISTRICTS.map((d) => (
+                <button key={d.district}
+                  className={`waste__chip ${wasteDistrict === d.district ? "waste__chip--active" : ""}`}
+                  onClick={() => setWasteDistrict(d.district)}>
+                  {d.district}
+                </button>
+              ))}
+            </div>
+            <div className="waste__grid">
+              <div className="waste__card">
+                <div className="waste__icon" style={{ background: "rgba(34,197,94,0.15)", color: "#22C55E" }}>GFT</div>
+                <div className="waste__k">Groenafval</div>
+                <div className="waste__v">{waste.gft}</div>
+                <div className="waste__when tabular">{nextWasteDay(waste.gft)}</div>
+              </div>
+              <div className="waste__card">
+                <div className="waste__icon" style={{ background: "rgba(96,165,250,0.15)", color: "#60A5FA" }}>PMD</div>
+                <div className="waste__k">Plastic · Metaal · Drank</div>
+                <div className="waste__v">{waste.pmd}</div>
+                <div className="waste__when tabular">{nextWasteDay(waste.pmd)}</div>
+              </div>
+              <div className="waste__card">
+                <div className="waste__icon" style={{ background: "rgba(168,50,58,0.15)", color: "#A8323A" }}>REST</div>
+                <div className="waste__k">Restafval</div>
+                <div className="waste__v">{waste.rest}</div>
+                <div className="waste__when tabular">{nextWasteDay(waste.rest)}</div>
+              </div>
+            </div>
+            <p className="waste__note">
+              Wijk niet in de lijst? Kijk op <a href="https://ivago.be/afvalkalender" target="_blank" rel="noopener noreferrer">ivago.be/afvalkalender</a> voor je exacte straat.
+            </p>
           </div>
         </section>
 
       </main>
 
-      <footer className="footer" role="contentinfo">
-        <div>data.stad.gent · Opendatasoft v2.1</div>
-        <div className="footer__mid tabular">
-          4 streams · refresh 5 min · {lastUpdate ? `synced ${lastUpdate.toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" })}` : "pending"}
+      {/* ═══ FOOTER + BYLINE ══════════════════════════════════════════ */}
+      <footer className="foot" role="contentinfo">
+        <div className="foot__skyline" aria-hidden="true">
+          <ThreeTowers height={44} color="#1a2238" opacity={0.8} />
         </div>
-        <div>Built on Ghent open data · <span style={{ color: "#22C55E" }}>●</span> ops.ghent.live</div>
+        <div className="foot__content">
+          <div className="foot__left">
+            <div className="foot__title">Gent · Live</div>
+            <div className="foot__tagline">Een civiel dashboard, gemaakt met en voor de stad.</div>
+          </div>
+          <div className="foot__mid">
+            <div className="foot__meta">
+              Bronnen: data.stad.gent · Open-Meteo · OpenStreetMap · CARTO
+            </div>
+            <div className="foot__meta tabular">
+              {lastUpdate ? `Laatst ververst · ${lastUpdate.toLocaleTimeString("nl-BE", { hour: "2-digit", minute: "2-digit" })}` : "—"}
+            </div>
+          </div>
+          <div className="foot__right">
+            <div className="foot__byline">
+              Gecureerd door <strong>Faisal Alani</strong>
+            </div>
+            <div className="foot__small">Ghent, MMXXVI · <span style={{ color: "var(--oxblood)" }}>♥</span></div>
+          </div>
+        </div>
       </footer>
     </div>
   );
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// CSS — OLED dark, Fira Code + Fira Sans, strict a11y, no emoji icons
+// CSS — Ghent-heavy: Fraunces display + Fira Sans, oxblood + status green
+// indigo-tinted dark, grain overlay, heraldic ornamentation
 // ═════════════════════════════════════════════════════════════════════════
 const css = `
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Fira+Sans:wght@300;400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap');
 
-.ops-root {
-  /* Skill spec palette: Dark Slate + Status Green */
-  --bg:            #0F172A;
-  --bg-elev:       #111C33;
-  --surface:       #15213D;
-  --surface-2:     #1B2847;
-  --muted:         #272F42;
-  --border:        #334155;
-  --border-soft:   rgba(71,85,105,0.35);
-  --fg:            #F8FAFC;
-  --fg-muted:      #94A3B8;
-  --fg-dim:        #64748B;
-  --accent:        #22C55E;     /* status green — CTA + live indicator */
-  --warn:          #F59E0B;
-  --alert:         #EF4444;
-  --ring:          rgba(34,197,94,0.4);
-  --serif: 'Fira Code', ui-monospace, monospace;
-  --sans:  'Fira Sans', system-ui, -apple-system, sans-serif;
-  --radius-sm: 4px;
-  --radius:    8px;
-  --radius-lg: 12px;
+.gl-root {
+  --bg:           #0E1422;          /* indigo-tinted night */
+  --bg-elev:      #131A2D;
+  --surface:      #182342;
+  --surface-2:    #1F2C52;
+  --muted:        #2A3350;
+  --border:       #344066;
+  --border-soft:  rgba(52,64,102,0.4);
+  --fg:           #F5F1E8;          /* warm off-white, cream tint */
+  --fg-muted:     #9AA3C0;
+  --fg-dim:       #6B7499;
+  --accent:       #22C55E;          /* status green */
+  --oxblood:      #A8323A;          /* Ghent heraldic red */
+  --oxblood-soft: rgba(168,50,58,0.2);
+  --gold:         #C9A43D;          /* heraldic gold, used sparingly */
+  --warn:         #F59E0B;
+  --alert:        #EF4444;
+  --display: 'Fraunces', Georgia, serif;
+  --sans:    'Fira Sans', system-ui, sans-serif;
+  --mono:    'Fira Code', ui-monospace, monospace;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --t-fast:  150ms;
-  --t-base:  220ms;
+  --radius: 8px;
+  --radius-lg: 12px;
 
   background: var(--bg);
   color: var(--fg);
@@ -764,127 +777,136 @@ const css = `
   font-size: 14px;
   line-height: 1.5;
   min-height: 100vh;
-  font-feature-settings: 'ss01','cv02','cv11';
+  font-feature-settings: 'ss01','cv11';
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  position: relative;
 }
-.ops-root * { box-sizing: border-box; }
-.ops-root .tabular { font-variant-numeric: tabular-nums; }
+.gl-root * { box-sizing: border-box; }
+.gl-root .tabular { font-variant-numeric: tabular-nums; }
 
-/* Skip link (a11y requirement) */
+/* Paper grain — gives warmth */
+.gl-root::before {
+  content: "";
+  position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.9  0 0 0 0 0.85  0 0 0 0 0.7  0 0 0 0.08 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  mix-blend-mode: screen; opacity: 0.4;
+}
+
 .skip {
   position: absolute; left: -9999px; top: 0;
-  background: var(--accent); color: #0B1220;
+  background: var(--oxblood); color: white;
   padding: 8px 14px; z-index: 100;
-  font-family: var(--serif); font-size: 12px; font-weight: 600;
-  border-radius: 0 0 var(--radius) 0;
+  font-family: var(--mono); font-size: 12px;
 }
 .skip:focus { left: 0; }
+.gl-root :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 
-/* Focus rings (keyboard visibility requirement) */
-.ops-root :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
-}
-
-/* Reduced motion (skill requirement) */
 @media (prefers-reduced-motion: reduce) {
-  .ops-root *, .ops-root *::before, .ops-root *::after {
+  .gl-root *, .gl-root *::before, .gl-root *::after {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
 }
 
-/* ── TOP BAR ─────────────────────────────────────────────────── */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 24px;
+/* ═══ MASTHEAD ══════════════════════════════════════════════════════════ */
+.mast {
+  position: relative;
+  padding: 36px 24px 26px;
   border-bottom: 1px solid var(--border);
-  background: rgba(15,23,42,0.85);
-  backdrop-filter: blur(12px);
-  position: sticky; top: 0; z-index: 10;
-  gap: 16px;
-  flex-wrap: wrap;
+  background:
+    radial-gradient(ellipse at 50% 100%, rgba(168,50,58,0.08) 0%, transparent 60%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-elev) 100%);
+  overflow: hidden;
 }
-.topbar__left { display: flex; align-items: center; gap: 12px; }
-.logo {
-  display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--serif); font-weight: 700; font-size: 13px;
-  letter-spacing: 0.08em; color: var(--accent);
+.mast__skyline {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  color: #2a3850;
+  pointer-events: none;
 }
-.logo__text { color: var(--fg); letter-spacing: 0.15em; }
-.topbar__sep { color: var(--fg-dim); }
-.topbar__crumb {
-  font-family: var(--serif); font-size: 11px;
-  color: var(--fg-muted); letter-spacing: 0.05em;
+.mast__content { position: relative; z-index: 2; max-width: 1440px; margin: 0 auto; }
+.mast__top { display: grid; grid-template-columns: 1fr 2fr 1fr; align-items: center; gap: 24px; }
+
+.mast__left, .mast__right { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--fg-dim); text-transform: uppercase; }
+.mast__right { text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 14px; flex-wrap: wrap; }
+.mast__date { color: var(--fg-muted); }
+.mast__time { color: var(--fg-muted); font-size: 11px; }
+
+.mast__center { text-align: center; }
+.mast__eyebrow {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.25em;
+  color: var(--oxblood);
+  text-transform: uppercase; margin-bottom: 10px;
 }
-.topbar__right { display: flex; align-items: center; gap: 16px; }
-.conn { display: inline-flex; align-items: center; gap: 6px; }
-.conn__dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--fg-dim);
-  box-shadow: 0 0 0 0 transparent;
+.mast__title {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(48px, 8vw, 96px);
+  letter-spacing: -0.02em;
+  line-height: 0.95;
+  margin: 0;
+  color: var(--fg);
 }
-.conn__dot.live {
-  background: var(--accent);
-  animation: pulse 1.8s ease-in-out infinite;
-}
-.conn__dot.sample { background: var(--warn); }
-.conn__label {
-  font-family: var(--serif); font-size: 10px; font-weight: 600;
-  letter-spacing: 0.15em; color: var(--fg-muted);
-}
-.topbar__time {
-  font-family: var(--serif); font-size: 11px;
-  color: var(--fg-muted); letter-spacing: 0.05em;
-}
-@keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 var(--ring); }
-  50%      { box-shadow: 0 0 0 6px transparent; }
+.mast__title-main { font-style: normal; }
+.mast__title-sep  { color: var(--oxblood); margin: 0 0.1em; font-weight: 500; }
+.mast__title-sub  { font-style: italic; color: var(--fg-muted); font-weight: 400; }
+
+.mast__sub {
+  font-family: var(--display); font-style: italic;
+  font-size: 16px; color: var(--fg-muted);
+  margin-top: 8px;
 }
 
-/* ── BUTTONS ─────────────────────────────────────────────────── */
+.conn { display: inline-flex; align-items: center; gap: 6px; }
+.conn__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-dim); }
+.conn__dot.live   { background: var(--accent); animation: pulse 1.8s ease-in-out infinite; }
+.conn__dot.sample { background: var(--warn); }
+.conn__label { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.15em; color: var(--fg-muted); }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); } 50% { box-shadow: 0 0 0 6px transparent; } }
+
 .btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font-family: var(--serif); font-size: 11px; font-weight: 500;
-  letter-spacing: 0.05em;
-  padding: 7px 12px;
-  border-radius: var(--radius-sm);
-  min-height: 32px;
-  cursor: pointer;
-  transition: all var(--t-fast) var(--ease);
+  display: inline-flex; align-items: center; gap: 5px;
+  background: transparent; border: 1px solid var(--border); color: var(--fg);
+  font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.05em;
+  padding: 6px 10px; border-radius: 4px; min-height: 28px; cursor: pointer;
+  transition: all 150ms var(--ease);
 }
-.btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(34,197,94,0.06);
-}
-.btn:active:not(:disabled) {
-  transform: translateY(1px);
-  opacity: 0.8;
-}
+.btn:hover:not(:disabled) { border-color: var(--oxblood); color: var(--oxblood); background: var(--oxblood-soft); }
 .btn:disabled { opacity: 0.5; cursor: wait; }
 .btn--ghost { background: rgba(255,255,255,0.02); }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── LAYOUT ──────────────────────────────────────────────────── */
+/* ═══ MAIN LAYOUT ═══════════════════════════════════════════════════════ */
 .main {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  position: relative; z-index: 1;
+  max-width: 1440px; margin: 0 auto;
+  padding: 40px 24px 60px;
+  display: flex; flex-direction: column; gap: 28px;
 }
 
-/* ── HERO ────────────────────────────────────────────────────── */
+.ornament {
+  display: flex; align-items: center; gap: 14px;
+  color: var(--oxblood); opacity: 0.55;
+  margin: 8px 0;
+}
+.ornament__line { flex: 1; height: 1px; background: currentColor; }
+
+/* ═══ SECTION TITLE ═════════════════════════════════════════════════════ */
+.section-title {
+  font-family: var(--display); font-weight: 500;
+  font-size: clamp(26px, 3vw, 34px);
+  letter-spacing: -0.015em; line-height: 1.15;
+  margin: 8px 0 0;
+  color: var(--fg);
+  display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+}
+.section-title__num { color: var(--oxblood); font-style: italic; font-size: 0.85em; }
+.section-title__main { font-weight: 500; }
+.section-title__sub { color: var(--fg-muted); font-style: italic; font-weight: 400; font-size: 0.75em; }
+
+/* ═══ HERO (call + KPI) ═════════════════════════════════════════════════ */
 .hero {
   display: grid;
   grid-template-columns: 1.2fr 2fr;
@@ -894,438 +916,316 @@ const css = `
 .call {
   background: linear-gradient(180deg, var(--surface) 0%, var(--bg-elev) 100%);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-lg);
-  padding: 24px;
-  position: relative;
-  overflow: hidden;
+  padding: 26px;
+  position: relative; overflow: hidden;
 }
-.call::before {
-  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--accent), transparent);
-}
-.call--warn::before  { background: linear-gradient(90deg, transparent, var(--warn), transparent); }
-.call--alert::before { background: linear-gradient(90deg, transparent, var(--alert), transparent); }
+.call--warn  { border-left-color: var(--warn); }
+.call--alert { border-left-color: var(--alert); }
 
-.call__header {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin-bottom: 16px;
-}
+.call__header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .call__badge {
   display: inline-flex; align-items: center; gap: 4px;
-  font-family: var(--serif); font-size: 10px; font-weight: 600;
-  letter-spacing: 0.15em;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
+  font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.15em;
+  padding: 3px 8px; border-radius: 4px;
 }
-.call__badge--ok    { background: rgba(34,197,94,0.12);  color: var(--accent); border: 1px solid rgba(34,197,94,0.3); }
-.call__badge--warn  { background: rgba(245,158,11,0.12); color: var(--warn);   border: 1px solid rgba(245,158,11,0.3); }
-.call__badge--alert { background: rgba(239,68,68,0.12);  color: var(--alert);  border: 1px solid rgba(239,68,68,0.3); }
+.call__badge--ok    { background: rgba(34,197,94,0.12);  color: var(--accent); }
+.call__badge--warn  { background: rgba(245,158,11,0.12); color: var(--warn); }
+.call__badge--alert { background: rgba(239,68,68,0.12);  color: var(--alert); }
+.call__kicker { font-family: var(--mono); font-size: 10px; letter-spacing: 0.2em; color: var(--fg-dim); text-transform: uppercase; }
 
-.call__kicker {
-  font-family: var(--serif); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.15em;
-  color: var(--fg-dim);
-  text-transform: uppercase;
-}
 .call__head {
-  font-family: var(--serif); font-weight: 500;
-  font-size: 26px; line-height: 1.15;
-  letter-spacing: -0.01em;
-  margin: 0 0 10px;
-  color: var(--fg);
+  font-family: var(--display); font-weight: 500;
+  font-size: clamp(22px, 2.6vw, 32px);
+  line-height: 1.15; letter-spacing: -0.01em;
+  margin: 0 0 10px; color: var(--fg);
 }
-.call__body {
-  font-size: 14px; line-height: 1.55;
-  color: var(--fg-muted);
-  margin: 0 0 16px;
-  max-width: 45ch;
-}
+.call__body { font-size: 14px; line-height: 1.55; color: var(--fg-muted); margin: 0 0 14px; max-width: 50ch; }
 .call__meta {
-  display: flex; align-items: center; gap: 12px;
-  font-family: var(--serif); font-size: 10px;
-  letter-spacing: 0.05em;
+  display: flex; align-items: center; gap: 10px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
   color: var(--fg-dim);
-  padding-top: 14px;
-  border-top: 1px solid var(--border-soft);
-}
-.call__meta span {
-  display: inline-flex; align-items: center; gap: 4px;
+  padding-top: 12px; border-top: 1px solid var(--border-soft);
 }
 
-/* ── KPI GRID ────────────────────────────────────────────────── */
-.kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
 .kpi {
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 16px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 14px;
   display: flex; flex-direction: column;
-  transition: border-color var(--t-base) var(--ease), transform var(--t-base) var(--ease);
+  transition: border-color 220ms var(--ease);
 }
 .kpi:hover { border-color: var(--fg-dim); }
+.kpi__head { display: flex; align-items: center; gap: 6px; color: var(--fg-muted); margin-bottom: 6px; }
+.kpi__title { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.15em; text-transform: uppercase; flex: 1; }
+.kpi__value { font-family: var(--display); font-weight: 500; font-size: 30px; line-height: 1; color: var(--fg); letter-spacing: -0.02em; margin-bottom: 4px; }
+.kpi__unit { font-size: 13px; color: var(--fg-muted); margin-left: 3px; }
+.kpi__sub { font-size: 11px; color: var(--fg-muted); min-height: 16px; display: flex; align-items: center; gap: 6px; }
+.kpi__mini-bar { margin-top: 8px; height: 3px; border-radius: 99px; background: var(--muted); overflow: hidden; }
+.kpi__mini-fill { height: 100%; transition: width 600ms var(--ease); }
 
-.kpi__head {
-  display: flex; align-items: center; gap: 6px;
-  color: var(--fg-muted);
-  margin-bottom: 8px;
-}
-.kpi__title {
-  font-family: var(--serif); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.15em; text-transform: uppercase;
-  flex: 1;
-}
-.kpi__value {
-  font-family: var(--serif); font-weight: 600;
-  font-size: 36px; line-height: 1;
-  color: var(--fg);
-  letter-spacing: -0.02em;
-  margin-bottom: 4px;
-}
-.kpi__unit {
-  font-size: 14px; color: var(--fg-muted);
-  margin-left: 3px; font-weight: 500;
-}
-.kpi__sub {
-  font-size: 11px;
-  color: var(--fg-muted);
-  min-height: 16px;
-  display: flex; align-items: center; gap: 6px;
-}
-.kpi__sub-text { color: var(--fg-dim); }
-.kpi__mini-bar {
-  margin-top: 10px;
-  height: 3px; border-radius: 99px;
-  background: var(--muted);
-  overflow: hidden;
-}
-.kpi__mini-fill {
-  height: 100%;
-  transition: width var(--t-base) var(--ease);
-}
-.kpi__mini-chart { margin-top: 6px; height: 44px; display: flex; align-items: flex-end; }
-.kpi__stream { margin-top: 8px; }
-.kpi__pills { margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap; }
-.pill {
-  font-family: var(--serif); font-size: 9px; font-weight: 500;
-  letter-spacing: 0.05em;
-  padding: 3px 6px;
-  background: var(--muted);
-  color: var(--fg-muted);
-  border-radius: 3px;
-}
-
-/* Status dots */
-.dot {
-  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
-  flex-shrink: 0;
-}
-.dot--ok    { background: var(--accent); box-shadow: 0 0 8px var(--ring); }
-.dot--warn  { background: var(--warn);   box-shadow: 0 0 8px rgba(245,158,11,0.4); }
-.dot--alert { background: var(--alert);  box-shadow: 0 0 8px rgba(239,68,68,0.4); }
-
-.trend {
-  display: inline-flex; align-items: center; gap: 3px;
-  font-family: var(--serif); font-weight: 600;
-}
+.dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot--ok    { background: var(--accent); box-shadow: 0 0 6px rgba(34,197,94,0.4); }
+.dot--warn  { background: var(--warn);   box-shadow: 0 0 6px rgba(245,158,11,0.4); }
+.dot--alert { background: var(--alert);  box-shadow: 0 0 6px rgba(239,68,68,0.4); }
+.dot--info  { background: var(--fg-dim); }
+.trend { display: inline-flex; align-items: center; gap: 3px; font-family: var(--mono); font-weight: 600; }
 .trend--up   { color: var(--accent); }
 .trend--down { color: var(--alert); }
 
-/* ── PANELS ─────────────────────────────────────────────────── */
+/* ═══ PANELS ════════════════════════════════════════════════════════════ */
 .panel {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
+  position: relative;
 }
-.panel--accent {
-  background: linear-gradient(180deg, var(--surface) 0%, var(--bg-elev) 60%);
-  border-color: rgba(34,197,94,0.2);
+.panel--accent { background: linear-gradient(180deg, var(--surface) 0%, var(--bg-elev) 60%); border-color: rgba(34,197,94,0.2); }
+.panel--weather {
+  background:
+    radial-gradient(ellipse at 85% 20%, rgba(168,50,58,0.1) 0%, transparent 60%),
+    linear-gradient(180deg, var(--surface) 0%, var(--bg-elev) 100%);
 }
+.panel--gem {
+  background:
+    radial-gradient(ellipse at 20% 20%, rgba(168,50,58,0.15) 0%, transparent 50%),
+    linear-gradient(180deg, var(--surface) 0%, var(--bg-elev) 100%);
+  border-color: rgba(168,50,58,0.3);
+}
+
 .panel__head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 20px;
+  padding: 16px 20px; gap: 12px; flex-wrap: wrap;
   border-bottom: 1px solid var(--border-soft);
-  gap: 12px;
-  flex-wrap: wrap;
 }
 .panel__kicker {
-  display: block;
-  font-family: var(--serif); font-size: 10px; font-weight: 600;
-  letter-spacing: 0.18em;
-  color: var(--fg-dim);
-  margin-bottom: 2px;
+  display: block; font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.2em; color: var(--oxblood); margin-bottom: 2px; text-transform: uppercase;
 }
-.panel__title {
-  font-family: var(--serif); font-weight: 500;
-  font-size: 18px; line-height: 1.2;
-  letter-spacing: -0.005em;
-  margin: 0;
-  color: var(--fg);
-}
+.panel__title { font-family: var(--display); font-weight: 500; font-size: 20px; line-height: 1.2; margin: 0; color: var(--fg); }
 .chip {
   display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--serif); font-size: 10px;
-  letter-spacing: 0.05em;
-  color: var(--fg-muted);
-  padding: 5px 9px;
-  background: var(--muted);
-  border: 1px solid var(--border-soft);
-  border-radius: 99px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
+  color: var(--fg-muted); padding: 4px 8px;
+  background: var(--muted); border: 1px solid var(--border-soft); border-radius: 99px;
 }
+.panel__map { padding: 12px 20px; border-bottom: 1px solid var(--border-soft); background: var(--bg); }
 
-.panel__map {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg);
-}
+/* ═══ WEATHER ═══════════════════════════════════════════════════════════ */
+.wx-icon { color: var(--gold); }
+.wx-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border-soft); }
+.wx-stat { padding: 16px 20px; background: var(--bg-elev); display: flex; flex-direction: column; gap: 4px; }
+.wx-stat__k { font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; color: var(--fg-dim); text-transform: uppercase; }
+.wx-stat__v { font-family: var(--display); font-size: 26px; font-weight: 500; color: var(--fg); }
+.wx-stat__v em { font-size: 12px; color: var(--fg-muted); margin-left: 3px; font-style: normal; font-family: var(--sans); font-weight: 400; }
 
-/* ── BULLET CHART ───────────────────────────────────────────── */
-.bullet-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--border-soft);
-  padding: 1px;
+/* ═══ AIR COMPACT ═══════════════════════════════════════════════════════ */
+.air-compact { padding: 10px 20px 16px; }
+.air-compact__row {
+  display: grid; grid-template-columns: 1.5fr auto auto;
+  align-items: center; gap: 12px;
+  padding: 10px 0; border-bottom: 1px dashed var(--border-soft);
 }
-.bullet {
-  background: var(--bg-elev);
-  padding: 16px 18px;
-  transition: background var(--t-base) var(--ease);
-}
-.bullet:hover { background: var(--surface); }
-.bullet__head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  margin-bottom: 10px;
-  gap: 8px;
-}
-.bullet__label {
-  font-family: var(--serif); font-weight: 500;
-  font-size: 13px; color: var(--fg);
-  line-height: 1.3;
-}
-.bullet__sub {
-  font-size: 10px; color: var(--fg-muted);
-  margin-top: 2px;
-}
-.bullet__value {
-  font-family: var(--serif); font-weight: 600;
-  font-size: 22px; line-height: 1;
-  letter-spacing: -0.02em;
-}
-.bullet__track {
-  position: relative;
-  height: 10px;
-  background: var(--muted);
-  border-radius: 2px;
-  overflow: hidden;
-  margin-bottom: 8px;
-}
-.bullet__zone { position: absolute; top: 0; bottom: 0; }
-.bullet__mark {
-  position: absolute; top: -2px; bottom: -2px;
-  width: 1px;
-  background: var(--fg);
-  opacity: 0.35;
-}
-.bullet__bar {
-  position: absolute; top: 2px; bottom: 2px; left: 0;
-  border-radius: 1px;
-  transition: width 600ms var(--ease);
-}
-.bullet__legend {
-  display: flex; justify-content: space-between;
-  font-family: var(--serif); font-size: 9px;
-  color: var(--fg-dim);
-  letter-spacing: 0.02em;
-}
-.bullet__legend em { font-style: normal; color: var(--fg-muted); }
-
-/* ── SPLIT (Air + Bike) ─────────────────────────────────────── */
-.split {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 16px;
-}
-
-/* ── AIR TABLE ──────────────────────────────────────────────── */
-.air-table { padding: 8px 20px 20px; }
-.air-row {
-  display: grid;
-  grid-template-columns: 1.6fr 1.3fr 0.8fr 0.8fr 1.1fr;
-  align-items: center;
-  padding: 12px 0;
-  border-bottom: 1px dashed var(--border-soft);
-  gap: 12px;
-  font-size: 13px;
-}
-.air-row:last-child { border-bottom: none; }
-.air-row--head {
-  font-family: var(--serif); font-size: 10px; font-weight: 600;
-  letter-spacing: 0.15em; color: var(--fg-dim);
-  text-transform: uppercase;
-  padding: 10px 0;
-}
-.air-station { font-family: var(--sans); font-weight: 500; }
-.air-bar {
-  display: inline-block;
-  width: 60px; height: 4px;
-  margin-left: 8px;
-  background: var(--muted);
-  border-radius: 99px;
-  vertical-align: middle;
-  overflow: hidden;
-}
-.air-bar__fill { display: block; height: 100%; transition: width var(--t-base) var(--ease); }
-
+.air-compact__row:last-child { border-bottom: none; }
+.air-compact__name { font-weight: 500; }
+.air-compact__val { font-family: var(--display); font-weight: 500; font-size: 18px; }
+.air-compact__val em { font-size: 10px; color: var(--fg-muted); font-family: var(--sans); font-style: normal; font-weight: 400; margin-left: 3px; }
 .badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-family: var(--serif); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.05em;
-  padding: 3px 8px;
-  border-radius: 99px;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.05em;
+  padding: 3px 7px; border-radius: 99px;
 }
 .badge--ok    { background: rgba(34,197,94,0.10);  color: var(--accent); }
 .badge--warn  { background: rgba(245,158,11,0.10); color: var(--warn); }
 .badge--alert { background: rgba(239,68,68,0.10);  color: var(--alert); }
+.badge--info  { background: rgba(148,163,184,0.10); color: var(--fg-muted); }
 
-/* ── BIKE PANEL ─────────────────────────────────────────────── */
-.stream-big { padding: 20px 20px 6px; }
-.stream-big__value {
-  font-family: var(--serif); font-weight: 600;
-  font-size: 48px; line-height: 1;
-  letter-spacing: -0.03em;
-  color: var(--fg);
-}
-.stream-big__label {
-  font-family: var(--serif); font-size: 11px;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--fg-muted);
-  margin-top: 6px;
-}
-.stream-canvas { padding: 0 20px; margin-top: 8px; }
-.stream-foot {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-  padding: 20px;
-  border-top: 1px solid var(--border-soft);
-  margin-top: 12px;
-}
-.foot__k {
-  display: block;
-  font-family: var(--serif); font-size: 9px; font-weight: 500;
-  letter-spacing: 0.15em; text-transform: uppercase;
-  color: var(--fg-dim);
-  margin-bottom: 4px;
-}
-.foot__v {
-  font-family: var(--serif); font-weight: 600;
-  font-size: 18px; color: var(--fg);
-}
+/* ═══ SPLIT LAYOUTS ═════════════════════════════════════════════════════ */
+.split-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
-/* ── EVENTS ─────────────────────────────────────────────────── */
-.events-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 1px;
-  background: var(--border-soft);
+/* ═══ BULLET (parking) ══════════════════════════════════════════════════ */
+.bullet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border-soft); padding: 1px; }
+.bullet { background: var(--bg-elev); padding: 14px 16px; transition: background 220ms var(--ease); }
+.bullet:hover { background: var(--surface); }
+.bullet__head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
+.bullet__label { font-weight: 500; font-size: 13px; color: var(--fg); line-height: 1.3; }
+.bullet__sub { font-size: 10px; color: var(--fg-muted); margin-top: 2px; }
+.bullet__value { font-family: var(--display); font-weight: 500; font-size: 22px; line-height: 1; letter-spacing: -0.02em; }
+.bullet__track { position: relative; height: 8px; background: var(--muted); border-radius: 2px; overflow: hidden; }
+.bullet__zone { position: absolute; top: 0; bottom: 0; }
+.bullet__mark { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--fg); opacity: 0.35; }
+.bullet__bar { position: absolute; top: 2px; bottom: 2px; left: 0; border-radius: 1px; transition: width 600ms var(--ease); }
+
+/* ═══ TRANSIT ═══════════════════════════════════════════════════════════ */
+.transit-list { padding: 10px 20px 16px; display: flex; flex-direction: column; }
+.transit {
+  display: flex; align-items: center; gap: 12px; padding: 12px 0;
+  border-bottom: 1px dashed var(--border-soft);
+  text-decoration: none; color: var(--fg);
+  transition: padding 180ms var(--ease);
 }
+.transit:last-child { border-bottom: none; }
+.transit:hover { padding-left: 6px; }
+.transit__icon { width: 32px; height: 32px; border-radius: 6px; background: var(--muted); display: flex; align-items: center; justify-content: center; color: var(--oxblood); flex-shrink: 0; }
+.transit__body { flex: 1; min-width: 0; }
+.transit__name { font-weight: 500; font-size: 14px; margin-bottom: 2px; }
+.transit__lines { display: flex; gap: 4px; flex-wrap: wrap; }
+.line-badge {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  padding: 2px 6px; border-radius: 3px;
+  background: var(--oxblood); color: white;
+  min-width: 20px; text-align: center;
+}
+.transit__arrow { color: var(--fg-dim); transition: color 150ms var(--ease); flex-shrink: 0; }
+.transit:hover .transit__arrow { color: var(--oxblood); }
+
+/* ═══ BIKE STREAM ══════════════════════════════════════════════════════ */
+.stream-big { padding: 18px 20px 6px; }
+.stream-big__value { font-family: var(--display); font-weight: 500; font-size: 44px; line-height: 1; letter-spacing: -0.03em; color: var(--fg); }
+.stream-big__label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--fg-muted); margin-top: 6px; }
+.stream-canvas { padding: 0 20px; }
+.stream-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px 20px; border-top: 1px solid var(--border-soft); margin-top: 10px; }
+.foot__k { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--fg-dim); margin-bottom: 4px; }
+.foot__v { font-family: var(--display); font-weight: 500; font-size: 18px; color: var(--fg); }
+.foot__v em { font-size: 11px; font-style: normal; color: var(--fg-muted); font-family: var(--sans); margin-left: 2px; }
+
+/* ═══ WATER ════════════════════════════════════════════════════════════ */
+.water-list { padding: 10px 20px 16px; display: flex; flex-direction: column; }
+.water {
+  display: flex; align-items: center; gap: 14px; padding: 14px 0;
+  border-bottom: 1px dashed var(--border-soft);
+  text-decoration: none; color: var(--fg);
+  transition: padding 180ms var(--ease);
+}
+.water:last-child { border-bottom: none; }
+.water:hover { padding-left: 6px; }
+.water__body { flex: 1; min-width: 0; }
+.water__name { font-weight: 500; font-size: 14px; margin-bottom: 2px; }
+.water__kind { font-size: 11px; color: var(--fg-muted); margin-bottom: 1px; }
+.water__note { font-size: 11px; color: var(--fg-dim); font-style: italic; }
+
+/* ═══ GEM ══════════════════════════════════════════════════════════════ */
+.gem { padding: 20px; }
+.gem__name { font-family: var(--display); font-weight: 500; font-size: 28px; line-height: 1.1; color: var(--fg); margin-bottom: 6px; letter-spacing: -0.01em; }
+.gem__tagline { font-family: var(--display); font-style: italic; font-size: 15px; color: var(--fg-muted); margin: 0 0 14px; line-height: 1.4; }
+.gem__tip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px; background: rgba(168,50,58,0.08);
+  border-left: 2px solid var(--oxblood);
+  font-size: 13px; color: var(--fg);
+  margin-bottom: 14px;
+}
+.gem__link {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--oxblood); text-decoration: none;
+  padding: 6px 10px; border: 1px solid var(--oxblood); border-radius: 4px;
+  transition: all 150ms var(--ease);
+  text-transform: uppercase;
+}
+.gem__link:hover { background: var(--oxblood); color: white; }
+.gem__mini-map { margin-top: 16px; }
+
+/* ═══ EVENTS ═══════════════════════════════════════════════════════════ */
+.events-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-soft); }
 .event {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 18px 20px;
-  background: var(--bg-elev);
-  color: var(--fg);
-  text-decoration: none;
-  transition: background var(--t-base) var(--ease);
-  min-height: 88px;
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 16px 18px; background: var(--bg-elev);
+  color: var(--fg); text-decoration: none;
+  transition: background 220ms var(--ease);
+  min-height: 84px;
 }
 .event:hover { background: var(--surface); }
-.event__num {
-  font-family: var(--serif); font-weight: 500;
-  font-size: 20px; color: var(--accent);
-  line-height: 1;
-  min-width: 22px;
-  padding-top: 2px;
-}
+.event__num { font-family: var(--display); font-weight: 500; font-size: 20px; color: var(--oxblood); line-height: 1; min-width: 22px; padding-top: 2px; font-style: italic; }
 .event__body { flex: 1; min-width: 0; }
-.event__when {
-  font-family: var(--serif); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.1em;
-  color: var(--fg-muted);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-.event__title {
-  font-family: var(--sans); font-weight: 500;
-  font-size: 15px; line-height: 1.3;
-  margin-bottom: 4px;
-  color: var(--fg);
-}
-.event__where {
-  display: flex; align-items: center; gap: 4px;
-  font-size: 12px; color: var(--fg-muted);
-}
-.event__arrow {
-  color: var(--fg-dim);
-  transition: color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
-  flex-shrink: 0; margin-top: 2px;
-}
-.event:hover .event__arrow { color: var(--accent); transform: translate(2px, -2px); }
+.event__when { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--fg-muted); text-transform: uppercase; margin-bottom: 4px; }
+.event__title { font-weight: 500; font-size: 14px; line-height: 1.3; margin-bottom: 4px; color: var(--fg); }
+.event__where { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg-muted); }
+.event__arrow { color: var(--fg-dim); transition: color 150ms var(--ease), transform 150ms var(--ease); flex-shrink: 0; margin-top: 2px; }
+.event:hover .event__arrow { color: var(--oxblood); transform: translate(2px, -2px); }
 
-/* ── SKELETON ───────────────────────────────────────────────── */
+/* ═══ WASTE ════════════════════════════════════════════════════════════ */
+.waste { padding: 20px; }
+.waste__selector { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
+.waste__chip {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
+  padding: 6px 10px; border-radius: 99px;
+  background: var(--muted); border: 1px solid var(--border-soft);
+  color: var(--fg-muted); cursor: pointer;
+  transition: all 150ms var(--ease);
+}
+.waste__chip:hover { color: var(--fg); border-color: var(--fg-dim); }
+.waste__chip--active { background: var(--oxblood); border-color: var(--oxblood); color: white; }
+.waste__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.waste__card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 16px; }
+.waste__icon {
+  font-family: var(--mono); font-weight: 700; font-size: 12px; letter-spacing: 0.05em;
+  padding: 4px 8px; border-radius: 4px; display: inline-block; margin-bottom: 10px;
+}
+.waste__k { font-size: 11px; color: var(--fg-muted); margin-bottom: 4px; }
+.waste__v { font-family: var(--display); font-weight: 500; font-size: 22px; color: var(--fg); margin-bottom: 4px; }
+.waste__when { font-family: var(--mono); font-size: 11px; color: var(--oxblood); letter-spacing: 0.05em; }
+.waste__note { margin-top: 16px; font-size: 12px; color: var(--fg-muted); }
+.waste__note a { color: var(--oxblood); }
+
+/* ═══ SKELETON ═════════════════════════════════════════════════════════ */
 .skeleton {
   background: linear-gradient(90deg, var(--muted) 0%, var(--surface-2) 50%, var(--muted) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s linear infinite;
 }
-@keyframes shimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
-/* ── FOOTER ─────────────────────────────────────────────────── */
-.footer {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 24px;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-  font-family: var(--serif); font-size: 10px;
-  letter-spacing: 0.1em;
-  color: var(--fg-dim);
-  gap: 12px;
-  flex-wrap: wrap;
+/* ═══ FOOTER ═══════════════════════════════════════════════════════════ */
+.foot {
+  position: relative; margin-top: 40px;
+  background: linear-gradient(180deg, var(--bg) 0%, #08101e 100%);
+  border-top: 2px solid var(--oxblood);
+  overflow: hidden;
 }
-.footer__mid { color: var(--fg-muted); }
+.foot__skyline { position: absolute; left: 0; right: 0; top: 8px; opacity: 0.4; pointer-events: none; }
+.foot__content {
+  position: relative; z-index: 1;
+  max-width: 1440px; margin: 0 auto;
+  padding: 60px 24px 30px;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px;
+  align-items: end;
+}
+.foot__title { font-family: var(--display); font-weight: 500; font-size: 22px; color: var(--fg); margin-bottom: 4px; }
+.foot__tagline { font-family: var(--display); font-style: italic; font-size: 13px; color: var(--fg-muted); }
+.foot__mid { text-align: center; }
+.foot__meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--fg-dim); margin-bottom: 6px; }
+.foot__right { text-align: right; }
+.foot__byline {
+  font-family: var(--display); font-size: 16px; font-style: italic; color: var(--fg);
+  padding-bottom: 6px; border-bottom: 1px solid var(--oxblood); display: inline-block;
+}
+.foot__byline strong { font-weight: 500; font-style: normal; color: var(--oxblood); }
+.foot__small { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--fg-dim); margin-top: 6px; text-transform: uppercase; }
 
-/* ── RESPONSIVE ─────────────────────────────────────────────── */
+/* ═══ RESPONSIVE ═══════════════════════════════════════════════════════ */
 @media (max-width: 1100px) {
+  .mast__top { grid-template-columns: 1fr; text-align: center; gap: 14px; }
+  .mast__left, .mast__right { text-align: center; justify-content: center; }
   .hero { grid-template-columns: 1fr; }
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .bullet-grid { grid-template-columns: repeat(2, 1fr); }
-  .split { grid-template-columns: 1fr; }
   .events-grid { grid-template-columns: repeat(2, 1fr); }
-  .stream-foot { grid-template-columns: repeat(2, 1fr); }
+  .split-2 { grid-template-columns: 1fr; }
+  .foot__content { grid-template-columns: 1fr; text-align: center; gap: 20px; }
+  .foot__right { text-align: center; }
+  .foot__byline { display: inline-block; }
 }
 @media (max-width: 640px) {
-  .main { padding: 16px; gap: 16px; }
-  .topbar { padding: 10px 16px; }
-  .topbar__crumb, .topbar__sep { display: none; }
+  .main { padding: 24px 16px 40px; gap: 20px; }
+  .mast { padding: 24px 16px 20px; }
   .kpi-grid { grid-template-columns: 1fr; }
   .bullet-grid { grid-template-columns: 1fr; }
   .events-grid { grid-template-columns: 1fr; }
-  .air-row {
-    grid-template-columns: 1.5fr 1fr;
-    grid-template-rows: auto auto;
-  }
-  .air-row--head { display: none; }
-  .call__head { font-size: 22px; }
-  .kpi__value { font-size: 28px; }
-  .stream-big__value { font-size: 38px; }
+  .waste__grid { grid-template-columns: 1fr; }
+  .wx-grid { grid-template-columns: 1fr; }
+  .stream-foot { grid-template-columns: 1fr 1fr; }
 }
 `;
