@@ -159,3 +159,81 @@ export function nextWasteDay(dayName) {
   if (diff === 1) return "Tomorrow";
   return `In ${diff} days`;
 }
+
+// ── Nightlife venues — curated Ghent club + music scene ─────────────────
+// Real venues, real links. Click goes to wherever their lineup lives
+// (Instagram is most reliable — they update it first).
+export const NIGHTLIFE_VENUES = [
+  {
+    name: "Kompass Klub",
+    kind: "Techno · industrial",
+    vibe: "Warehouse, proper sound system, up to sunrise",
+    area: "Dok-Noord",
+    url: "https://www.instagram.com/kompassklub/",
+    web: "https://www.kompassklub.com",
+    tag: "TECHNO",
+  },
+  {
+    name: "Decadance",
+    kind: "House · disco",
+    vibe: "Long-runner, eclectic, Friday residents",
+    area: "Overpoortstraat",
+    url: "https://www.instagram.com/decadance_ghent/",
+    web: "https://www.decadance.be",
+    tag: "HOUSE",
+  },
+  {
+    name: "De Vooruit",
+    kind: "Concerts · art · café",
+    vibe: "Socialist-era palace, everything from jazz to noise",
+    area: "Sint-Pietersnieuwstraat",
+    url: "https://www.instagram.com/viernulvier/",
+    web: "https://viernulvier.gent",
+    tag: "LIVE",
+  },
+  {
+    name: "Charlatan",
+    kind: "Rock · indie · DJs",
+    vibe: "Small, sweaty, free entry most nights",
+    area: "Vlasmarkt",
+    url: "https://www.instagram.com/charlatan_gent/",
+    web: "https://www.charlatan.be",
+    tag: "INDIE",
+  },
+  {
+    name: "Democrazy",
+    kind: "Booker · concerts citywide",
+    vibe: "They book the good ones — check who's playing where",
+    area: "Various venues",
+    url: "https://www.instagram.com/democrazygent/",
+    web: "https://democrazy.be",
+    tag: "LIVE",
+  },
+  {
+    name: "Kinky Star",
+    kind: "Alt · punk · underground",
+    vibe: "Cult spot near Vrijdagmarkt, local bands + DJs",
+    area: "Vlasmarkt",
+    url: "https://www.instagram.com/kinkystar_gent/",
+    web: "https://www.kinkystar.com",
+    tag: "UNDERGROUND",
+  },
+  {
+    name: "Trefpunt",
+    kind: "Folk · café · free shows",
+    vibe: "At the Bij Sint-Jacobs — always something on",
+    area: "Bij Sint-Jacobs",
+    url: "https://www.instagram.com/trefpuntgent/",
+    web: "https://trefpunt.be",
+    tag: "LIVE",
+  },
+  {
+    name: "N9",
+    kind: "Electronic · experimental",
+    vibe: "Intimate, curated lineups, great for Thursdays",
+    area: "Nederkouter",
+    url: "https://www.instagram.com/n9_club/",
+    web: null,
+    tag: "ELECTRONIC",
+  },
+];
