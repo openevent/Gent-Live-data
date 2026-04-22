@@ -287,7 +287,7 @@ export default function GhentOps() {
         <div className="topbar__left">
           <div className="logo">
             <Radio size={16} strokeWidth={2.5} aria-hidden="true" />
-            <span className="logo__text">GHENT · OPS</span>
+            <span className="logo__text">GENT · NOW</span>
           </div>
           <span className="topbar__sep" aria-hidden="true">/</span>
           <span className="topbar__crumb">{quip}</span>
