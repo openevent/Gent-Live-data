@@ -14,7 +14,7 @@ import {
 } from "./ghent-data.js";
 
 // ═════════════════════════════════════════════════════════════════════════
-// GHENT · OPS — Real-Time Civic Operations Dashboard
+// Gent · NOW — THE EVERYTHING DASHBOARD
 // ═════════════════════════════════════════════════════════════════════════
 
 const API = "/api/gent";
