@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Radio, Menu, X, RefreshCw } from "lucide-react";
-import { useData } from "../data/api.js";
+import { useData } from "../data/api.jsx";
 
 export default function Nav() {
   const [open, setOpen] = useState(false);
