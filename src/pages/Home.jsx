@@ -1,8 +1,8 @@
 import React from "react";
 import { Link } from "wouter";
 import { Moon, Sun, MapPin, ArrowRight, Zap, Wind, Car, Bike } from "lucide-react";
-import { useData, occStatus, airStatus } from "../data/api.js";
-import { describeWeather, weatherQuip } from "../data/api.js";
+import { useData, occStatus, airStatus } from "../data/api.jsx";
+import { describeWeather, weatherQuip } from "../data/api.jsx";
 
 export default function Home() {
   const { parking, air, weather } = useData();
