@@ -76,7 +76,7 @@ export default function Welcome({ onDone }) {
         </h1>
 
         {/* Subtitle */}
-        <p className="welcome__sub">Real-time civic dashboard · Ghent</p>
+        <p className="welcome__sub">The everything dashboard · Ghent</p>
 
         {/* Tiny connecting indicator */}
         <div className="welcome__status">
