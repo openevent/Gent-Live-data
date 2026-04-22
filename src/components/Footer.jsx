@@ -1,7 +1,7 @@
 import React from "react";
 import { Link } from "wouter";
 import ThreeTowers from "./ThreeTowers.jsx";
-import { useData } from "../data/api.js";
+import { useData } from "../data/api.jsx";
 
 export default function Footer() {
   const { lastUpdate, liveMode } = useData();
