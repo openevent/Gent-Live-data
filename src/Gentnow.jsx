@@ -697,8 +697,8 @@ export default function GhentOps() {
         </div>
         <div className="foot__content">
           <div className="foot__left">
-            <div className="foot__title">Ghent · Ops</div>
-            <div className="foot__tagline">A civic dashboard for real Ghent data.</div>
+            <div className="foot__title">Gent · Now</div>
+            <div className="foot__tagline">Live data for the city, in one place.</div>
           </div>
           <div className="foot__mid">
             <div className="foot__meta">Sources · data.stad.gent · Open-Meteo · OpenStreetMap · CARTO</div>
@@ -707,7 +707,7 @@ export default function GhentOps() {
             </div>
           </div>
           <div className="foot__right">
-            <div className="foot__byline">Curated by <strong>Faisal Alani</strong></div>
+          
             <div className="foot__small">Ghent · {new Date().getFullYear()} · <span style={{ color: "#22C55E" }}>●</span></div>
           </div>
         </div>
