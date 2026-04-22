@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   useData, describeWeather, weatherQuip, occStatus, airStatus, STATUS,
-} from "../data/api.js";
+} from "../data/api.jsx";
 import {
   TRANSIT_STOPS, WATER_SPOTS, WASTE_DISTRICTS, nextWasteDay,
 } from "../data/venues.js";
