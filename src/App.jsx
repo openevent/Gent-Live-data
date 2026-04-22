@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Route, Switch } from "wouter";
-import { DataProvider } from "./data/api.js";
+import { DataProvider } from "./data/api.jsx";
 import Nav from "./components/Nav.jsx";
 import Footer from "./components/Footer.jsx";
 import Welcome from "./components/Welcome.jsx";
