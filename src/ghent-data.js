@@ -44,23 +44,6 @@ export function describeWeather(code) {
   return { label: "Weather", icon: "cloud" };
 }
 
-// ── Flemish weather quips — a little local character ────────────────────
-// These rotate based on weather code + temperature
-export function flemishQuip({ code, temp, wind, rainChance }) {
-  if (code >= 95) return "Onweer op komst — binnen blijven.";
-  if (code >= 61 && code <= 82) return "Regenjas verplicht vandaag.";
-  if (code >= 51 && code <= 57) return "Een beetje miezer — typisch Gent.";
-  if (code >= 45 && code <= 48) return "Nevel over de Leie.";
-  if (rainChance > 60) return "Paraplu mee, voor alle zekerheid.";
-  if (temp >= 22 && code <= 2) return "Terras-weer in de Patershol.";
-  if (temp >= 18 && code <= 2) return "Perfecte dag voor een fietstocht.";
-  if (temp < 5) return "Handschoenen aan, kouwelijk buiten.";
-  if (temp < 10 && code <= 2) return "Fris maar helder — jas dicht.";
-  if (wind > 25) return "Stevige wind — pas op met de fiets.";
-  if (code <= 2) return "Zon over de drie torens.";
-  return "Een gewone Gentse dag.";
-}
-
 // ── Tourist "gems of the day" — curated lesser-known Ghent spots ───────
 // Rotates daily; these are real places tourists usually miss
 export const GHENT_GEMS = [
@@ -133,33 +116,6 @@ export const TRANSIT_STOPS = [
   { name: "Rabot",            lines: ["1"],                 kind: "tram" },
 ];
 
-// ── Waste pickup — IVAGO (Gent's waste authority) ───────────────────────
-// Simple lookup: most streets have GFT/PMD/Restafval on specific weekdays.
-// For a real lookup use ivago-afvalkalender dataset on data.stad.gent.
-// Here we use representative schedules by district.
-export const WASTE_DISTRICTS = [
-  { district: "Binnenstad",        gft: "Mon", pmd: "Wed", rest: "Fri" },
-  { district: "Ledeberg",          gft: "Tue", pmd: "Thu", rest: "Mon" },
-  { district: "Gentbrugge",        gft: "Wed", pmd: "Fri", rest: "Tue" },
-  { district: "Sint-Amandsberg",   gft: "Thu", pmd: "Mon", rest: "Wed" },
-  { district: "Muide",             gft: "Fri", pmd: "Tue", rest: "Thu" },
-  { district: "Brugse Poort",      gft: "Mon", pmd: "Thu", rest: "Sat" },
-  { district: "Rabot",             gft: "Tue", pmd: "Fri", rest: "Mon" },
-  { district: "Watersportbaan",    gft: "Wed", pmd: "Mon", rest: "Thu" },
-];
-
-export function nextWasteDay(dayName) {
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const today = new Date().getDay();
-  const target = days.indexOf(dayName);
-  if (target < 0) return "—";
-  let diff = target - today;
-  if (diff < 0) diff += 7;
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  return `In ${diff} days`;
-}
-
 // ── Nightlife venues — curated Ghent club + music scene ─────────────────
 // Real venues, real links. Click goes to wherever their lineup lives
 // (Instagram is most reliable — they update it first).
@@ -226,14 +182,5 @@ export const NIGHTLIFE_VENUES = [
     url: "https://www.instagram.com/trefpuntgent/",
     web: "https://trefpunt.be",
     tag: "LIVE",
-  },
-  {
-    name: "N9",
-    kind: "Electronic · experimental",
-    vibe: "Intimate, curated lineups, great for Thursdays",
-    area: "Nederkouter",
-    url: "https://www.instagram.com/n9_club/",
-    web: null,
-    tag: "ELECTRONIC",
   },
 ];
