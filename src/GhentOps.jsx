@@ -1,17 +1,16 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
-  Activity, Wind, Car, Bike, CalendarDays, RefreshCw, Pause, Play,
-  CircleAlert, CircleCheck, TrendingUp, TrendingDown, MapPin, ArrowUpRight,
+  Activity, Wind, Car, Bike, CalendarDays, RefreshCw,
+  CircleAlert, CircleCheck, MapPin, ArrowUpRight,
   Zap, Radio, Sun, Cloud, CloudRain, CloudDrizzle, CloudSnow, CloudLightning,
-  CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass, Music, Disc3,
+  CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass, Disc3, Info,
 } from "lucide-react";
 import MiniMap, { lookupVenue, lookupParking, lookupAirStation } from "./MiniMap.jsx";
 import Terraces from "./Terraces.jsx";
 import ThreeTowers from "./ThreeTowers.jsx";
 import {
   fetchWeather, describeWeather, gemOfTheDay,
-  WATER_SPOTS, TRANSIT_STOPS, WASTE_DISTRICTS, nextWasteDay,
-  NIGHTLIFE_VENUES,
+  WATER_SPOTS, TRANSIT_STOPS, NIGHTLIFE_VENUES,
 } from "./ghent-data.js";
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -91,26 +90,48 @@ const weatherIcon = (iconName, size = 28) => {
 };
 
 async function fetchParking() {
-  const r = await fetch(`${API}?dataset=bezetting-parkeergarages-real-time&limit=20`);
+  const r = await fetch(`${API}?dataset=bezetting-parkeergarages-real-time&limit=30`);
   if (!r.ok) throw new Error("parking");
   const d = await r.json();
   return (d.results || []).map((x) => {
     const total = Number(x.totalcapacity ?? x.totaalcapaciteit ?? 0);
     const free  = Number(x.availablecapacity ?? x.availablespaces ?? 0);
     const occ   = total > 0 ? Math.round(((total - free) / total) * 100) : 0;
-    return { name: x.name || "Parking", total, free, occupation: occ };
+    // Try every likely shape of coordinates Opendatasoft returns
+    let coords = null;
+    if (x.location?.lon != null && x.location?.lat != null) {
+      coords = { lng: Number(x.location.lon), lat: Number(x.location.lat) };
+    } else if (x.geo_point_2d?.lon != null && x.geo_point_2d?.lat != null) {
+      coords = { lng: Number(x.geo_point_2d.lon), lat: Number(x.geo_point_2d.lat) };
+    } else if (Array.isArray(x.geo_point_2d) && x.geo_point_2d.length === 2) {
+      coords = { lat: Number(x.geo_point_2d[0]), lng: Number(x.geo_point_2d[1]) };
+    } else if (x.longitude != null && x.latitude != null) {
+      coords = { lng: Number(x.longitude), lat: Number(x.latitude) };
+    }
+    return { name: x.name || x.description || "Parking", total, free, occupation: occ, coords };
   });
 }
 async function fetchAir() {
   const r = await fetch(`${API}?dataset=luchtkwaliteit-gent&limit=20`);
   if (!r.ok) throw new Error("air");
   const d = await r.json();
-  return (d.results || []).map((x) => ({
-    station: x.station_name || x.name || "Station",
-    no2:  Number(x.no2 ?? x.value_no2 ?? 0),
-    pm25: Number(x.pm25 ?? x.value_pm25 ?? 0),
-    pm10: Number(x.pm10 ?? x.value_pm10 ?? 0),
-  }));
+  return (d.results || []).map((x) => {
+    let coords = null;
+    if (x.geo_point_2d?.lon != null && x.geo_point_2d?.lat != null) {
+      coords = { lng: Number(x.geo_point_2d.lon), lat: Number(x.geo_point_2d.lat) };
+    } else if (Array.isArray(x.geo_point_2d) && x.geo_point_2d.length === 2) {
+      coords = { lat: Number(x.geo_point_2d[0]), lng: Number(x.geo_point_2d[1]) };
+    } else if (x.longitude != null && x.latitude != null) {
+      coords = { lng: Number(x.longitude), lat: Number(x.latitude) };
+    }
+    return {
+      station: x.station_name || x.name || "Station",
+      no2:  Number(x.no2 ?? x.value_no2 ?? 0),
+      pm25: Number(x.pm25 ?? x.value_pm25 ?? 0),
+      pm10: Number(x.pm10 ?? x.value_pm10 ?? 0),
+      coords,
+    };
+  });
 }
 async function fetchEvents() {
   const r = await fetch(`${API}?dataset=cultuur-events-gent&limit=8&order_by=startdate`);
@@ -157,40 +178,6 @@ const BulletChart = ({ value, total, label, sublabel }) => {
   );
 };
 
-const StreamingArea = ({ data, paused, accent = "#22C55E", height = 120 }) => {
-  const ref = useRef(null);
-  useEffect(() => {
-    const c = ref.current; if (!c) return;
-    const ctx = c.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const w = c.clientWidth, h = height;
-    c.width = w * dpr; c.height = h * dpr; ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
-    if (!data.length) return;
-    const max = Math.max(...data) * 1.1;
-    const min = Math.min(...data) * 0.9;
-    const span = max - min || 1;
-    ctx.strokeStyle = "rgba(71,85,105,0.25)"; ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = (h / 4) * i;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
-    const pts = data.map((v, i) => [(i / (data.length - 1)) * w, h - ((v - min) / span) * (h - 14) - 7]);
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, accent + "55"); grad.addColorStop(1, accent + "00");
-    ctx.fillStyle = grad; ctx.beginPath();
-    ctx.moveTo(pts[0][0], h);
-    pts.forEach(([x, y]) => ctx.lineTo(x, y));
-    ctx.lineTo(pts[pts.length - 1][0], h); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = accent; ctx.lineWidth = 2;
-    ctx.beginPath(); pts.forEach(([x, y], i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y)); ctx.stroke();
-    const [lx, ly] = pts[pts.length - 1];
-    ctx.fillStyle = accent; ctx.beginPath(); ctx.arc(lx, ly, 4, 0, Math.PI * 2); ctx.fill();
-    if (!paused) { ctx.fillStyle = accent + "44"; ctx.beginPath(); ctx.arc(lx, ly, 10, 0, Math.PI * 2); ctx.fill(); }
-  }, [data, paused, accent, height]);
-  return <canvas ref={ref} style={{ width: "100%", height, display: "block" }} aria-hidden="true" />;
-};
-
 // ═════════════════════════════════════════════════════════════════════════
 // MAIN
 // ═════════════════════════════════════════════════════════════════════════
@@ -203,15 +190,6 @@ export default function GhentOps() {
   const [liveMode, setLiveMode] = useState({ parking: false, air: false, events: false, weather: false });
   const [lastUpdate, setLastUpdate] = useState(null);
   const [loading, setLoading]   = useState(false);
-  const [paused, setPaused]     = useState(false);
-  const [wasteDistrict, setWasteDistrict] = useState("Binnenstad");
-
-  const [bikeStream, setBikeStream] = useState(() => {
-    const base = 4821;
-    return Array.from({ length: 60 }, (_, i) =>
-      base + Math.round(Math.sin(i / 6) * 80 + Math.random() * 40)
-    );
-  });
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -228,20 +206,6 @@ export default function GhentOps() {
 
   useEffect(() => { loadAll(); const id = setInterval(loadAll, 5 * 60 * 1000); return () => clearInterval(id); }, [loadAll]);
 
-  useEffect(() => {
-    if (paused) return;
-    const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) return;
-    const id = setInterval(() => {
-      setBikeStream((s) => {
-        const last = s[s.length - 1];
-        const next = Math.max(0, last + Math.round((Math.random() - 0.45) * 50));
-        return [...s.slice(1), next];
-      });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [paused]);
-
   const parkData = parking || FALLBACK.parking;
   const airData  = air     || FALLBACK.air;
   const evData   = events  || FALLBACK.events;
@@ -255,18 +219,12 @@ export default function GhentOps() {
   const avgNo2 = airData.length ? Math.round(airData.reduce((a, s) => a + s.no2, 0) / airData.length) : 0;
   const airKpiStatus = airStatus(avgNo2);
 
-  const bikeNow  = bikeStream[bikeStream.length - 1];
-  const bikePrev = bikeStream[0];
-  const bikeTrend = bikeNow > bikePrev ? "up" : "down";
-  const bikeDelta = Math.abs(Math.round(((bikeNow - bikePrev) / bikePrev) * 100));
-
   const emptiest = [...parkData].sort((a, b) => a.occupation - b.occupation)[0];
   const fullest  = [...parkData].sort((a, b) => b.occupation - a.occupation)[0];
 
   const wxDesc  = describeWeather(wxData.code);
   const quip    = weatherQuip(wxData);
   const gem     = gemOfTheDay();
-  const waste   = WASTE_DISTRICTS.find((d) => d.district === wasteDistrict) || WASTE_DISTRICTS[0];
 
   const call = useMemo(() => {
     if (cityOcc > 85) return { level: "alert", head: "Leave the car — the city is packed.", body: `Garages at ${cityOcc}%. Take the tram or hop on a bike.` };
@@ -350,15 +308,13 @@ export default function GhentOps() {
               <div className="kpi__sub">feels {wxData.feels}° · {wxDesc.label.toLowerCase()}</div>
             </div>
             <div className="kpi" role="listitem">
-              <div className="kpi__head"><Bike size={14} aria-hidden="true" /><span className="kpi__title">Bikes</span>
-                <span className="dot dot--ok" aria-hidden="true" /></div>
-              <div className="kpi__value tabular">{bikeNow.toLocaleString()}</div>
+              <div className="kpi__head"><Droplets size={14} aria-hidden="true" /><span className="kpi__title">Rain · 6h</span>
+                <span className={`dot dot--${wxData.rainChance > 60 ? "warn" : "ok"}`} aria-hidden="true" /></div>
+              <div className="kpi__value tabular" style={{ color: wxData.rainChance > 60 ? "#60A5FA" : undefined }}>
+                {wxData.rainChance}<span className="kpi__unit">%</span>
+              </div>
               <div className="kpi__sub">
-                <span className={`trend trend--${bikeTrend}`}>
-                  {bikeTrend === "up" ? <TrendingUp size={11} aria-hidden="true" /> : <TrendingDown size={11} aria-hidden="true" />}
-                  <span className="tabular">{bikeDelta}%</span>
-                </span>
-                <span className="kpi__sub-text"> past minute</span>
+                {wxData.rainChance > 70 ? "umbrella time" : wxData.rainChance > 40 ? "maybe pack one" : "staying dry"}
               </div>
             </div>
           </div>
@@ -414,7 +370,8 @@ export default function GhentOps() {
             <div className="panel__map">
               {isLoaded && (
                 <MiniMap height={160} markers={airData.map((s) => {
-                  const c = lookupAirStation(s.station); if (!c) return null;
+                  const c = s.coords || lookupAirStation(s.station);
+                  if (!c) return null;
                   const st = airStatus(s.no2);
                   return { lng: c.lng, lat: c.lat, color: st.color, size: 14 + s.no2 / 3, label: s.station, sublabel: `NO₂ ${s.no2} µg/m³ · ${st.label}` };
                 }).filter(Boolean)} />
@@ -447,7 +404,8 @@ export default function GhentOps() {
           <div className="panel__map">
             {isLoaded && (
               <MiniMap height={220} markers={parkData.map((p) => {
-                const c = lookupParking(p.name); if (!c) return null;
+                const c = p.coords || lookupParking(p.name);
+                if (!c) return null;
                 const st = occStatus(p.occupation);
                 return {
                   lng: c.lng, lat: c.lat, color: st.color,
@@ -496,22 +454,23 @@ export default function GhentOps() {
             <header className="panel__head">
               <div>
                 <span className="panel__kicker">05 · CYCLING</span>
-                <h2 id="bike-h" className="panel__title">Bike stream</h2>
+                <h2 id="bike-h" className="panel__title">Cycling in Ghent</h2>
               </div>
-              <button className="btn btn--ghost" onClick={() => setPaused((p) => !p)} aria-pressed={paused} aria-label={paused ? "Resume" : "Pause"}>
-                {paused ? <Play size={12} aria-hidden="true" /> : <Pause size={12} aria-hidden="true" />}
-                <span>{paused ? "Resume" : "Pause"}</span>
-              </button>
+              <span className="chip"><Bike size={11} aria-hidden="true" /> Always a good idea</span>
             </header>
-            <div className="stream-big">
-              <div className="stream-big__value tabular">{bikeNow.toLocaleString()}</div>
-              <div className="stream-big__label">cyclists today · city centre</div>
+            <div className="cycling-hero">
+              <div className="cycling-hero__number tabular">63<span>km</span></div>
+              <div className="cycling-hero__label">of dedicated cycle streets</div>
+              <div className="cycling-hero__body">
+                Ghent has made bikes the easiest way through the centre — the
+                city's circulation plan keeps most cars out of the core.
+                Grab a bike, you'll arrive faster than the tram.
+              </div>
             </div>
-            <div className="stream-canvas"><StreamingArea data={bikeStream} paused={paused} accent="#22C55E" height={120} /></div>
             <div className="stream-foot">
-              <div><span className="foot__k">Pumps</span><span className="foot__v tabular">{FALLBACK.pumps}</span></div>
-              <div><span className="foot__k">Bike streets</span><span className="foot__v tabular">63 <em>km</em></span></div>
-              <div><span className="foot__k">Repair pts</span><span className="foot__v tabular">47</span></div>
+              <div><span className="foot__k">Free pumps</span><span className="foot__v tabular">24</span></div>
+              <div><span className="foot__k">Cycle streets</span><span className="foot__v tabular">63 <em>km</em></span></div>
+              <div><span className="foot__k">Repair points</span><span className="foot__v tabular">47</span></div>
             </div>
           </div>
         </section>
@@ -649,43 +608,33 @@ export default function GhentOps() {
           <header className="panel__head">
             <div>
               <span className="panel__kicker">10 · PRACTICAL</span>
-              <h2 id="waste-h" className="panel__title">Waste pickup schedule</h2>
+              <h2 id="waste-h" className="panel__title">Waste pickup</h2>
             </div>
-            <span className="chip"><Trash2 size={11} aria-hidden="true" /> IVAGO · Select district</span>
+            <span className="chip"><Trash2 size={11} aria-hidden="true" /> IVAGO</span>
           </header>
-          <div className="waste">
-            <div className="waste__selector">
-              {WASTE_DISTRICTS.map((d) => (
-                <button key={d.district}
-                  className={`waste__chip ${wasteDistrict === d.district ? "waste__chip--active" : ""}`}
-                  onClick={() => setWasteDistrict(d.district)}>
-                  {d.district}
-                </button>
-              ))}
+          <div className="waste-ivago">
+            <div className="waste-ivago__body">
+              <div className="waste-ivago__title">Find your street's pickup calendar</div>
+              <div className="waste-ivago__text">
+                Pickup days for GFT (organic), PMD (packaging), and general waste depend on your exact street.
+                IVAGO (Ghent's waste authority) has the full address-level calendar.
+              </div>
+              <a
+                href="https://ivago.be/afvalkalender"
+                target="_blank" rel="noopener noreferrer"
+                className="waste-ivago__button"
+              >
+                <span>Open IVAGO calendar</span>
+                <ArrowUpRight size={14} aria-hidden="true" />
+              </a>
             </div>
-            <div className="waste__grid">
-              <div className="waste__card">
-                <div className="waste__icon" style={{ background: "rgba(34,197,94,0.15)", color: "#22C55E" }}>GFT</div>
-                <div className="waste__k">Organic waste</div>
-                <div className="waste__v">{waste.gft}</div>
-                <div className="waste__when tabular">{nextWasteDay(waste.gft)}</div>
-              </div>
-              <div className="waste__card">
-                <div className="waste__icon" style={{ background: "rgba(96,165,250,0.15)", color: "#60A5FA" }}>PMD</div>
-                <div className="waste__k">Plastic · Metal · Drinks</div>
-                <div className="waste__v">{waste.pmd}</div>
-                <div className="waste__when tabular">{nextWasteDay(waste.pmd)}</div>
-              </div>
-              <div className="waste__card">
-                <div className="waste__icon" style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B" }}>REST</div>
-                <div className="waste__k">General waste</div>
-                <div className="waste__v">{waste.rest}</div>
-                <div className="waste__when tabular">{nextWasteDay(waste.rest)}</div>
-              </div>
+            <div className="waste-ivago__tags">
+              <div className="waste-ivago__tag" style={{ background: "rgba(34,197,94,0.15)", color: "#22C55E" }}>GFT</div>
+              <div className="waste-ivago__tag" style={{ background: "rgba(96,165,250,0.15)", color: "#60A5FA" }}>PMD</div>
+              <div className="waste-ivago__tag" style={{ background: "rgba(245,158,11,0.15)", color: "#F59E0B" }}>REST</div>
+              <div className="waste-ivago__tag" style={{ background: "rgba(148,163,184,0.15)", color: "#94A3B8" }}>P+K</div>
+              <div className="waste-ivago__tag" style={{ background: "rgba(168,50,58,0.15)", color: "#E87477" }}>GLAS</div>
             </div>
-            <p className="waste__note">
-              Your street not listed? Check <a href="https://ivago.be/afvalkalender" target="_blank" rel="noopener noreferrer">ivago.be/afvalkalender</a> for your exact address.
-            </p>
           </div>
         </section>
 <Terraces weather={wxData} />
@@ -981,12 +930,26 @@ const css = `
 .transit__arrow { color: var(--fg-dim); transition: color 150ms var(--ease); flex-shrink: 0; }
 .transit:hover .transit__arrow { color: var(--accent); }
 
-/* ── BIKE STREAM ─────────────────────────────────────────────── */
-.stream-big { padding: 18px 20px 6px; }
-.stream-big__value { font-weight: 600; font-size: 44px; line-height: 1; letter-spacing: -0.03em; color: var(--fg); }
-.stream-big__label { font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--fg-muted); margin-top: 6px; }
-.stream-canvas { padding: 0 20px; }
-.stream-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px 20px; border-top: 1px solid var(--border-soft); margin-top: 10px; }
+/* ── CYCLING HERO ──────────────────────────────────────────── */
+.cycling-hero { padding: 24px 24px 18px; }
+.cycling-hero__number {
+  font-weight: 700; font-size: 72px; line-height: 1;
+  letter-spacing: -0.04em; color: var(--accent);
+  display: inline-flex; align-items: baseline; gap: 2px;
+}
+.cycling-hero__number span {
+  font-size: 24px; color: var(--fg-muted); font-weight: 500;
+  letter-spacing: -0.01em; margin-left: 3px;
+}
+.cycling-hero__label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.15em;
+  text-transform: uppercase; color: var(--fg-muted); margin-top: 8px;
+}
+.cycling-hero__body {
+  margin-top: 14px; font-size: 13px; line-height: 1.55;
+  color: var(--fg-muted); max-width: 42ch;
+}
+.stream-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px 20px; border-top: 1px solid var(--border-soft); margin-top: 4px; }
 .foot__k { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--fg-dim); margin-bottom: 4px; }
 .foot__v { font-weight: 600; font-size: 18px; color: var(--fg); }
 .foot__v em { font-size: 11px; font-style: normal; color: var(--fg-muted); margin-left: 2px; font-weight: 400; }
@@ -1127,29 +1090,43 @@ const css = `
   transform: translate(2px, -2px);
 }
 
-/* ── WASTE ───────────────────────────────────────────────────── */
-.waste { padding: 20px; }
-.waste__selector { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 20px; }
-.waste__chip {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em;
-  padding: 6px 10px; border-radius: 99px;
-  background: var(--muted); border: 1px solid var(--border-soft);
-  color: var(--fg-muted); cursor: pointer;
-  transition: all 150ms var(--ease);
+/* ── WASTE · IVAGO LINK ─────────────────────────────────────── */
+.waste-ivago {
+  padding: 28px 28px 24px;
+  display: grid; grid-template-columns: 1fr auto; gap: 24px;
+  align-items: center;
 }
-.waste__chip:hover { color: var(--fg); border-color: var(--fg-dim); }
-.waste__chip--active { background: var(--accent); border-color: var(--accent); color: #0B1220; font-weight: 600; }
-.waste__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.waste__card { background: var(--bg); border: 1px solid var(--border-soft); border-radius: var(--radius); padding: 16px; }
-.waste__icon {
+.waste-ivago__title {
+  font-weight: 600; font-size: 18px; letter-spacing: -0.005em;
+  color: var(--fg); margin-bottom: 8px;
+}
+.waste-ivago__text {
+  font-size: 13px; line-height: 1.55; color: var(--fg-muted);
+  max-width: 50ch; margin-bottom: 16px;
+}
+.waste-ivago__button {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 10px 16px; border-radius: 99px;
+  background: var(--accent); color: #0B1220;
+  text-decoration: none;
+  transition: transform 150ms var(--ease);
+}
+.waste-ivago__button:hover { transform: translateY(-1px); }
+.waste-ivago__tags {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  align-self: center;
+  max-width: 180px;
+}
+.waste-ivago__tag {
   font-family: var(--mono); font-weight: 700; font-size: 11px; letter-spacing: 0.05em;
-  padding: 4px 8px; border-radius: 4px; display: inline-block; margin-bottom: 10px;
+  padding: 6px 10px; border-radius: 4px;
 }
-.waste__k { font-size: 11px; color: var(--fg-muted); margin-bottom: 4px; }
-.waste__v { font-weight: 600; font-size: 20px; color: var(--fg); margin-bottom: 4px; }
-.waste__when { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: 0.05em; }
-.waste__note { margin-top: 16px; font-size: 12px; color: var(--fg-muted); }
-.waste__note a { color: var(--accent); }
+@media (max-width: 720px) {
+  .waste-ivago { grid-template-columns: 1fr; }
+  .waste-ivago__tags { max-width: 100%; }
+}
 
 /* ── SKELETON ────────────────────────────────────────────────── */
 .skeleton {
