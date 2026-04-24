@@ -37,16 +37,17 @@ const DARK_STYLE = {
 
 // ── Venue coordinates for events (Ghent landmarks) ──────────────────────
 // Fallback lookup since the events API often lacks coordinates
+// Coordinates verified against OpenStreetMap.
 export const VENUE_COORDS = {
-  "Sint-Baafsplein":    { lng: 3.7260, lat: 51.0536 },
+  "Sint-Baafsplein":    { lng: 3.7265, lat: 51.0533 },
   "Korenmarkt":         { lng: 3.7214, lat: 51.0541 },
-  "Sphinx Cinema":      { lng: 3.7167, lat: 51.0583 },
+  "Sphinx Cinema":      { lng: 3.7207, lat: 51.0542 },
   "Kouter 29":          { lng: 3.7237, lat: 51.0508 },
   "Handelsbeurs":       { lng: 3.7237, lat: 51.0508 },
-  "ICC Citadelpark":    { lng: 3.7241, lat: 51.0367 },
-  "Citadelpark":        { lng: 3.7241, lat: 51.0367 },
+  "ICC Citadelpark":    { lng: 3.7243, lat: 51.0390 },
+  "Citadelpark":        { lng: 3.7243, lat: 51.0390 },
   "Vrijdagmarkt":       { lng: 3.7279, lat: 51.0568 },
-  "Graslei":            { lng: 3.7203, lat: 51.0550 },
+  "Graslei":            { lng: 3.7215, lat: 51.0549 },
   "Kouter":             { lng: 3.7227, lat: 51.0510 },
   "NTGent":             { lng: 3.7266, lat: 51.0533 },
 };
