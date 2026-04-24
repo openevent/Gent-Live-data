@@ -6,6 +6,7 @@ import {
   CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass, Music, Disc3,
 } from "lucide-react";
 import MiniMap, { lookupVenue, lookupParking, lookupAirStation } from "./MiniMap.jsx";
+import Terraces from "./Terraces.jsx";
 import ThreeTowers from "./ThreeTowers.jsx";
 import {
   fetchWeather, describeWeather, gemOfTheDay,
@@ -687,7 +688,7 @@ export default function GhentOps() {
             </p>
           </div>
         </section>
-
+<Terraces weather={wxData} />
       </main>
 
       {/* ── FOOTER ──────────────────────────────────────────────────── */}
