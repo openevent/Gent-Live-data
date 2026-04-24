@@ -3,7 +3,7 @@ import {
   Activity, Wind, Car, Bike, CalendarDays, RefreshCw,
   CircleAlert, CircleCheck, MapPin, ArrowUpRight,
   Zap, Radio, Sun, Cloud, CloudRain, CloudDrizzle, CloudSnow, CloudLightning,
-  CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass, Disc3, Info,
+  CloudFog, Droplets, Trash2, Train, Waves, Sparkles, Compass, Disc3, Info, Music,
 } from "lucide-react";
 import MiniMap, { lookupVenue, lookupParking, lookupAirStation } from "./MiniMap.jsx";
 import Terraces from "./Terraces.jsx";
