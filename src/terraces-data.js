@@ -252,7 +252,16 @@ export const TERRACES = [
 // Weather modifier: if it's overcast/rainy/cold, we downgrade everything.
 
 export function terraceStatus(terrace, weather, now = new Date()) {
-  const hour = now.getHours() + now.getMinutes() / 60;
+  // Always compute local Ghent time regardless of the user's browser timezone.
+  // Without this, visitors from other time zones see wrong terrace status.
+  const gentFormatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Brussels",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const parts = gentFormatter.formatToParts(now);
+  const hPart = Number(parts.find((p) => p.type === "hour")?.value ?? 0);
+  const mPart = Number(parts.find((p) => p.type === "minute")?.value ?? 0);
+  const hour = hPart + mPart / 60;
   const [start, end] = terrace.sunWindow;
 
   // Weather gating: if clouds or rain, no point talking about sun
