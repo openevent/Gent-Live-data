@@ -89,59 +89,131 @@ const weatherIcon = (iconName, size = 28) => {
   }
 };
 
+// Generic helper: try a list of dataset slugs in order; return the first non-empty result.
+// Always logs what came back so you can debug from the browser DevTools console.
+async function tryDatasets(slugs, query, parse, label) {
+  for (const slug of slugs) {
+    const url = `${API}?dataset=${encodeURIComponent(slug)}&${query}`;
+    try {
+      const r = await fetch(url);
+      const body = await r.json().catch(() => null);
+      if (!r.ok) {
+        console.warn(`[${label}] ${slug} → HTTP ${r.status}`, body);
+        continue;
+      }
+      const rows = Array.isArray(body?.results) ? body.results : [];
+      console.info(`[${label}] ${slug} → ${rows.length} records`, body?._proxy?.upstream || url);
+      if (!rows.length) continue;
+      const parsed = rows.map(parse).filter(Boolean);
+      if (parsed.length) return { rows: parsed, slug };
+    } catch (err) {
+      console.warn(`[${label}] ${slug} threw`, err);
+    }
+  }
+  return { rows: [], slug: null };
+}
+
+// When hardcoded slugs all miss, ask the catalog which dataset_ids match a keyword
+// and try those. Caches the discovery in sessionStorage so we don't re-search every refresh.
+async function discoverSlugs(keyword, label) {
+  const cacheKey = `gent-slug:${keyword}`;
+  try {
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) return JSON.parse(cached);
+  } catch {}
+  try {
+    const r = await fetch(`${API}?catalog=1&q=${encodeURIComponent(keyword)}`);
+    const body = await r.json().catch(() => null);
+    if (!r.ok) { console.warn(`[${label}] catalog search "${keyword}" failed`, body); return []; }
+    const ids = (body?.results || []).map((d) => d.dataset_id).filter(Boolean);
+    console.info(`[${label}] catalog search "${keyword}" → ${ids.length} candidates`, ids);
+    try { sessionStorage.setItem(cacheKey, JSON.stringify(ids)); } catch {}
+    return ids;
+  } catch (err) {
+    console.warn(`[${label}] catalog search threw`, err); return [];
+  }
+}
+
+// Try hardcoded slugs first; if they all miss, discover via catalog and try those too.
+async function tryWithDiscovery({ hardcoded, keyword, query, parse, label }) {
+  let result = await tryDatasets(hardcoded, query, parse, label);
+  if (result.rows.length) return result;
+  const discovered = (await discoverSlugs(keyword, label)).filter((s) => !hardcoded.includes(s));
+  if (!discovered.length) return result;
+  return tryDatasets(discovered, query, parse, label);
+}
+
+function pickCoords(x) {
+  if (x.location?.lon != null && x.location?.lat != null)
+    return { lng: Number(x.location.lon), lat: Number(x.location.lat) };
+  if (x.geo_point_2d?.lon != null && x.geo_point_2d?.lat != null)
+    return { lng: Number(x.geo_point_2d.lon), lat: Number(x.geo_point_2d.lat) };
+  if (Array.isArray(x.geo_point_2d) && x.geo_point_2d.length === 2)
+    return { lat: Number(x.geo_point_2d[0]), lng: Number(x.geo_point_2d[1]) };
+  if (x.longitude != null && x.latitude != null)
+    return { lng: Number(x.longitude), lat: Number(x.latitude) };
+  if (x.lon != null && x.lat != null)
+    return { lng: Number(x.lon), lat: Number(x.lat) };
+  return null;
+}
+
 async function fetchParking() {
-  const r = await fetch(`${API}?dataset=bezetting-parkeergarages-real-time&limit=30`);
-  if (!r.ok) throw new Error("parking");
-  const d = await r.json();
-  return (d.results || []).map((x) => {
-    const total = Number(x.totalcapacity ?? x.totaalcapaciteit ?? 0);
-    const free  = Number(x.availablecapacity ?? x.availablespaces ?? 0);
-    const occ   = total > 0 ? Math.round(((total - free) / total) * 100) : 0;
-    // Try every likely shape of coordinates Opendatasoft returns
-    let coords = null;
-    if (x.location?.lon != null && x.location?.lat != null) {
-      coords = { lng: Number(x.location.lon), lat: Number(x.location.lat) };
-    } else if (x.geo_point_2d?.lon != null && x.geo_point_2d?.lat != null) {
-      coords = { lng: Number(x.geo_point_2d.lon), lat: Number(x.geo_point_2d.lat) };
-    } else if (Array.isArray(x.geo_point_2d) && x.geo_point_2d.length === 2) {
-      coords = { lat: Number(x.geo_point_2d[0]), lng: Number(x.geo_point_2d[1]) };
-    } else if (x.longitude != null && x.latitude != null) {
-      coords = { lng: Number(x.longitude), lat: Number(x.latitude) };
-    }
-    return { name: x.name || x.description || "Parking", total, free, occupation: occ, coords };
+  const { rows } = await tryWithDiscovery({
+    hardcoded: ['bezetting-parkeergarages-real-time'],
+    keyword: 'parkeer',
+    query: 'limit=30',
+    label: 'parking',
+    parse: (x) => {
+      const total = Number(x.totalcapacity ?? x.totaalcapaciteit ?? x.numberofspaces ?? 0);
+      const free  = Number(x.availablecapacity ?? x.availablespaces ?? x.beschikbarecapaciteit ?? 0);
+      if (!total) return null;
+      const occ = Math.round(((total - free) / total) * 100);
+      return {
+        name: x.name || x.description || x.naam || 'Parking',
+        total, free, occupation: occ,
+        coords: pickCoords(x),
+      };
+    },
   });
+  return rows;
 }
+
 async function fetchAir() {
-  const r = await fetch(`${API}?dataset=luchtkwaliteit-gent&limit=20`);
-  if (!r.ok) throw new Error("air");
-  const d = await r.json();
-  return (d.results || []).map((x) => {
-    let coords = null;
-    if (x.geo_point_2d?.lon != null && x.geo_point_2d?.lat != null) {
-      coords = { lng: Number(x.geo_point_2d.lon), lat: Number(x.geo_point_2d.lat) };
-    } else if (Array.isArray(x.geo_point_2d) && x.geo_point_2d.length === 2) {
-      coords = { lat: Number(x.geo_point_2d[0]), lng: Number(x.geo_point_2d[1]) };
-    } else if (x.longitude != null && x.latitude != null) {
-      coords = { lng: Number(x.longitude), lat: Number(x.latitude) };
-    }
-    return {
-      station: x.station_name || x.name || "Station",
-      no2:  Number(x.no2 ?? x.value_no2 ?? 0),
-      pm25: Number(x.pm25 ?? x.value_pm25 ?? 0),
-      pm10: Number(x.pm10 ?? x.value_pm10 ?? 0),
-      coords,
-    };
+  const { rows } = await tryWithDiscovery({
+    hardcoded: ['luchtkwaliteit-gent', 'realtime-luchtkwaliteit-gent', 'luchtkwaliteit-meetstations-gent'],
+    keyword: 'luchtkwaliteit',
+    query: 'limit=20',
+    label: 'air',
+    parse: (x) => {
+      const station = x.station_name || x.name || x.station || x.naam || 'Station';
+      const no2  = Number(x.no2  ?? x.value_no2  ?? x.NO2  ?? 0);
+      const pm25 = Number(x.pm25 ?? x.value_pm25 ?? x.PM25 ?? 0);
+      const pm10 = Number(x.pm10 ?? x.value_pm10 ?? x.PM10 ?? 0);
+      if (!no2 && !pm25 && !pm10) return null;
+      return { station, no2, pm25, pm10, coords: pickCoords(x) };
+    },
   });
+  return rows;
 }
+
 async function fetchEvents() {
-  const r = await fetch(`${API}?dataset=cultuur-events-gent&limit=8&order_by=startdate`);
-  if (!r.ok) throw new Error("events");
-  const d = await r.json();
-  return (d.results || []).map((x) => ({
-    title: x.title || x.titel || "Event",
-    where: x.location || x.locatie || "Gent",
-    when:  x.startdate || x.datum || "",
-  }));
+  // Note: no order_by — that field name varies per dataset and a wrong one returns 400
+  const { rows } = await tryWithDiscovery({
+    hardcoded: ['cultuur-events-gent', 'evenementen-gent', 'cultuurevents-gent'],
+    keyword: 'evenement',
+    query: 'limit=8',
+    label: 'events',
+    parse: (x) => {
+      const title = x.title || x.titel || x.name || x.naam;
+      if (!title) return null;
+      return {
+        title,
+        where: x.location || x.locatie || x.venue || x.plaats || 'Gent',
+        when:  x.startdate || x.datum || x.start || x.date || '',
+      };
+    },
+  });
+  return rows;
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -252,9 +324,18 @@ export default function GhentOps() {
           <span className="topbar__crumb">{quip}</span>
         </div>
         <div className="topbar__right" role="status" aria-live="polite">
-          <div className="conn">
-            <span className={`conn__dot ${Object.values(liveMode).some(Boolean) ? "live" : "sample"}`} aria-hidden="true" />
-            <span className="conn__label tabular">{Object.values(liveMode).some(Boolean) ? "LIVE" : "SAMPLE"}</span>
+          <div className="streams" title="Live status of each data source">
+            {[
+              { key: 'parking', label: 'Park' },
+              { key: 'air',     label: 'Air'  },
+              { key: 'events',  label: 'Evt'  },
+              { key: 'weather', label: 'Wx'   },
+            ].map(({ key, label }) => (
+              <span key={key} className={`stream-pill ${liveMode[key] ? 'stream-pill--live' : 'stream-pill--sample'}`}>
+                <span className={`conn__dot ${liveMode[key] ? 'live' : 'sample'}`} aria-hidden="true" />
+                {label}
+              </span>
+            ))}
           </div>
           <div className="topbar__time tabular">
             {lastUpdate ? lastUpdate.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
@@ -745,6 +826,17 @@ const css = `
 .conn__dot.live { background: var(--accent); animation: pulse 1.8s ease-in-out infinite; }
 .conn__dot.sample { background: var(--warn); }
 .conn__label { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.15em; color: var(--fg-muted); }
+
+.streams { display: inline-flex; align-items: center; gap: 4px; }
+.stream-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+  padding: 3px 7px; border-radius: 4px; border: 1px solid var(--border);
+  text-transform: uppercase;
+}
+.stream-pill--live   { color: var(--accent); border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.06); }
+.stream-pill--sample { color: var(--warn);   border-color: rgba(245,158,11,0.35); background: rgba(245,158,11,0.05); }
+
 .topbar__time { font-family: var(--mono); font-size: 11px; color: var(--fg-muted); }
 @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 var(--ring); } 50% { box-shadow: 0 0 0 6px transparent; } }
 
