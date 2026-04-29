@@ -126,7 +126,7 @@ async function discoverSlugs(keyword, label) {
   } catch {}
   try {
     const where = encodeURIComponent(`search("${keyword}")`);
-    const r = await fetch(`${ODS_BASE}/catalog/datasets?limit=20&where=${where}&select=dataset_id,metas`);
+    const r = await fetch(`${ODS_BASE}/catalog/datasets?limit=20&where=${where}`);
     const body = await r.json().catch(() => null);
     if (!r.ok) { console.warn(`[${label}] catalog search "${keyword}" failed`, body); return []; }
     const ids = (body?.results || []).map((d) => d.dataset_id).filter(Boolean);
