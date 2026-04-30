@@ -478,9 +478,13 @@ export default function GhentOps() {
         <div className="topbar__right" role="status" aria-live="polite">
           <div className="streams" title="Live status of each data source">
             {[
-              { key: 'parking', label: 'Park' },
-              { key: 'bikes',   label: 'Bike' },
-              { key: 'weather', label: 'Wx'   },
+              { key: 'parking',  label: 'Park'  },
+              { key: 'bikes',    label: 'Bike'  },
+              { key: 'counters', label: 'Cnt'   },
+              { key: 'weather',  label: 'Wx'    },
+              { key: 'air',      label: 'Air'   },
+              { key: 'trains',   label: 'Train' },
+              { key: 'water',    label: 'Sea'   },
             ].map(({ key, label }) => (
               <span key={key} className={`stream-pill ${liveMode[key] ? 'stream-pill--live' : 'stream-pill--sample'}`}>
                 <span className={`conn__dot ${liveMode[key] ? 'live' : 'sample'}`} aria-hidden="true" />
@@ -532,6 +536,12 @@ export default function GhentOps() {
                 <span className={`dot dot--${bikesLoaded ? 'ok' : 'sample'}`} aria-hidden="true" /></div>
               <div className="kpi__value tabular">{bikesLoaded ? bikesData.totalBikes.toLocaleString() : "—"}</div>
               <div className="kpi__sub">{bikesLoaded ? `across ${bikesData.fleets.length} fleet${bikesData.fleets.length === 1 ? '' : 's'}` : <Skeleton h={12} w={80} />}</div>
+            </div>
+            <div className="kpi" role="listitem">
+              <div className="kpi__head"><Wind size={14} aria-hidden="true" /><span className="kpi__title">Air · AQI</span>
+                <span className={`dot dot--${air && air.aqi != null ? (air.aqi < 25 ? 'ok' : air.aqi < 50 ? 'warn' : 'alert') : 'sample'}`} aria-hidden="true" /></div>
+              <div className="kpi__value tabular">{air && air.aqi != null ? air.aqi : "—"}</div>
+              <div className="kpi__sub">{air ? `PM2.5 ${air.pm25 ?? '—'} · NO₂ ${air.no2 ?? '—'}` : <Skeleton h={12} w={100} />}</div>
             </div>
             <div className="kpi" role="listitem">
               <div className="kpi__head">{weatherIcon(wxDesc.icon, 14)}<span className="kpi__title">Weather</span>
@@ -589,6 +599,95 @@ export default function GhentOps() {
             </div>
           </div>
         </section>
+
+        {/* ── TRAINS (iRail) ───────────────────────────────────────── */}
+        {trains && trains.length > 0 && (
+          <section className="panel" aria-labelledby="trains-h">
+            <header className="panel__head">
+              <div>
+                <span className="panel__kicker">02 · TRAINS</span>
+                <h2 id="trains-h" className="panel__title">Next departures · Gent stations</h2>
+              </div>
+              <span className="chip"><Train size={11} aria-hidden="true" /> live · iRail</span>
+            </header>
+            <div className="bullet-grid" style={{ padding: '12px' }}>
+              {trains.map((t, i) => {
+                const delayMin = Math.round(t.delay / 60);
+                const isLate = delayMin > 0;
+                const timeStr = t.time ? t.time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '—';
+                return (
+                  <div key={i} className="bullet">
+                    <div className="bullet__head">
+                      <div>
+                        <div className="bullet__label">{t.toStation || 'Unknown'}</div>
+                        <div className="bullet__sub tabular">{t.station} · platform {t.platform}</div>
+                      </div>
+                      <div className="bullet__value tabular" style={{ color: t.canceled ? '#EF4444' : isLate ? '#F59E0B' : 'var(--accent)' }}>
+                        {t.canceled ? 'CXL' : timeStr}
+                        {isLate && !t.canceled ? <span style={{ fontSize: '0.5em', opacity: 0.7 }}> +{delayMin}m</span> : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {/* ── BIKE COUNTERS ──────────────────────────────────────── */}
+        {counters && counters.length > 0 && (
+          <section className="panel" aria-labelledby="counters-h">
+            <header className="panel__head">
+              <div>
+                <span className="panel__kicker">02b · BIKE COUNTERS</span>
+                <h2 id="counters-h" className="panel__title">Cyclists past the poles right now</h2>
+              </div>
+              <span className="chip"><Bike size={11} aria-hidden="true" /> live · stad.gent</span>
+            </header>
+            <div className="bullet-grid" style={{ padding: '12px' }}>
+              {counters.map((c, i) => (
+                <div key={i} className="bullet">
+                  <div className="bullet__head">
+                    <div>
+                      <div className="bullet__label">{c.name}</div>
+                      <div className="bullet__sub tabular">last reading</div>
+                    </div>
+                    <div className="bullet__value tabular" style={{ color: 'var(--accent)' }}>
+                      {c.count.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── SEA / WATER (Open-Meteo Marine) ─────────────────────── */}
+        {water && (water.waveHeight != null || water.seaLevel != null) && (
+          <section className="panel" aria-labelledby="sea-h">
+            <header className="panel__head">
+              <div>
+                <span className="panel__kicker">02c · SEA</span>
+                <h2 id="sea-h" className="panel__title">North Sea — at the Scheldt mouth</h2>
+              </div>
+              <span className="chip"><Waves size={11} aria-hidden="true" /> live · open-meteo marine</span>
+            </header>
+            <div className="wx-grid">
+              {water.waveHeight != null && (
+                <div className="wx-stat">
+                  <span className="wx-stat__k">Wave height</span>
+                  <span className="wx-stat__v tabular">{water.waveHeight.toFixed(2)} <em>m</em></span>
+                </div>
+              )}
+              {water.seaLevel != null && (
+                <div className="wx-stat">
+                  <span className="wx-stat__k">Sea level (MSL)</span>
+                  <span className="wx-stat__v tabular">{water.seaLevel.toFixed(2)} <em>m</em></span>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* ── PARKING ────────────────────────────────────────────────── */}
         <section className="panel" aria-labelledby="parking-h">
@@ -1147,168 +1246,6 @@ const css = `
   color: var(--fg-muted); max-width: 42ch;
 }
 .stream-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px 20px; border-top: 1px solid var(--border-soft); margin-top: 4px; }
-.foot__k { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--fg-dim); margin-bottom: 4px; }
-.foot__v { font-weight: 600; font-size: 18px; color: var(--fg); }
-.foot__v em { font-size: 11px; font-style: normal; color: var(--fg-muted); margin-left: 2px; font-weight: 400; }
-
-/* ── WATER ───────────────────────────────────────────────────── */
-.water-list { padding: 10px 20px 16px; display: flex; flex-direction: column; }
-.water {
-  display: flex; align-items: center; gap: 14px; padding: 14px 0;
-  border-bottom: 1px dashed var(--border-soft);
-  text-decoration: none; color: var(--fg);
-  transition: padding 180ms var(--ease);
+.foot__k { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: 0.15em; text-transform: uppercase; color: var(--fg-dim); margin-bo
 }
-.water:last-child { border-bottom: none; }
-.water:hover { padding-left: 6px; }
-.water__body { flex: 1; min-width: 0; }
-.water__name { font-weight: 500; font-size: 14px; margin-bottom: 2px; }
-.water__kind { font-size: 11px; color: var(--fg-muted); margin-bottom: 1px; }
-.water__note { font-size: 11px; color: var(--fg-dim); font-style: italic; }
-
-/* ── GEM ─────────────────────────────────────────────────────── */
-.gem { padding: 20px; }
-.gem__name { font-weight: 600; font-size: 24px; line-height: 1.1; color: var(--fg); margin-bottom: 6px; letter-spacing: -0.01em; }
-.gem__tagline { font-size: 14px; color: var(--fg-muted); margin: 0 0 14px; line-height: 1.5; }
-.gem__tip {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px; background: rgba(34,197,94,0.08);
-  border-left: 2px solid var(--accent);
-  border-radius: 0 4px 4px 0;
-  font-size: 13px; color: var(--fg); margin-bottom: 14px;
-}
-.gem__link {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em;
-  color: var(--accent); text-decoration: none;
-  padding: 6px 10px; border: 1px solid var(--accent); border-radius: 4px;
-  transition: all 150ms var(--ease); text-transform: uppercase;
-}
-.gem__link:hover { background: var(--accent); color: #0B1220; }
-.gem__mini-map { margin-top: 16px; }
-
-/* ── EVENTS ──────────────────────────────────────────────────── */
-.events-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--border-soft); }
-.event {
-  display: flex; align-items: flex-start; gap: 12px;
-  padding: 18px 20px; background: var(--bg-elev);
-  color: var(--fg); text-decoration: none;
-  transition: background 220ms var(--ease);
-  min-height: 88px;
-}
-.event:hover { background: var(--surface); }
-.event__num { font-weight: 600; font-size: 20px; color: var(--accent); line-height: 1; min-width: 22px; padding-top: 2px; }
-.event__body { flex: 1; min-width: 0; }
-.event__when { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--fg-muted); text-transform: uppercase; margin-bottom: 4px; }
-.event__title { font-weight: 500; font-size: 15px; line-height: 1.3; margin-bottom: 4px; color: var(--fg); }
-.event__where { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg-muted); }
-.event__arrow { color: var(--fg-dim); transition: color 150ms var(--ease), transform 150ms var(--ease); flex-shrink: 0; margin-top: 2px; }
-.event:hover .event__arrow { color: var(--accent); transform: translate(2px, -2px); }
-
-/* ── NIGHTLIFE ───────────────────────────────────────────────── */
-.nightlife-intro {
-  padding: 14px 20px;
-  font-size: 12px;
-  color: var(--fg-muted);
-  border-bottom: 1px solid var(--border-soft);
-  font-style: italic;
-  line-height: 1.5;
-  max-width: 70ch;
-}
-.venues-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--border-soft);
-}
-.venue {
-  display: flex; flex-direction: column;
-  gap: 6px; padding: 18px 20px 16px;
-  background: var(--bg-elev);
-  color: var(--fg); text-decoration: none;
-  transition: background 220ms var(--ease);
-  min-height: 160px;
-  position: relative;
-}
-.venue:hover { background: var(--surface); }
-.venue__head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 4px;
-}
-.venue__icon {
-  width: 28px; height: 28px;
-  border-radius: 6px;
-  background: var(--muted);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--accent);
-  transition: background 180ms var(--ease), color 180ms var(--ease);
-}
-.venue:hover .venue__icon {
-  background: rgba(34,197,94,0.15);
-}
-.venue__tag {
-  font-family: var(--mono); font-size: 9px; font-weight: 600;
-  letter-spacing: 0.15em; color: var(--fg-dim);
-  padding: 3px 6px; border-radius: 3px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border-soft);
-}
-.venue__name {
-  font-weight: 600; font-size: 15px;
-  color: var(--fg); letter-spacing: -0.01em;
-  line-height: 1.2;
-}
-.venue__kind {
-  font-family: var(--mono); font-size: 10px;
-  color: var(--accent); letter-spacing: 0.05em;
-  text-transform: lowercase;
-}
-.venue__vibe {
-  font-size: 12px; color: var(--fg-muted);
-  line-height: 1.4;
-  flex: 1;
-}
-.venue__foot {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; margin-top: 6px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border-soft);
-}
-.venue__area {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-size: 11px; color: var(--fg-dim);
-}
-.venue__arrow {
-  color: var(--fg-dim);
-  transition: color 150ms var(--ease), transform 150ms var(--ease);
-}
-.venue:hover .venue__arrow {
-  color: var(--accent);
-  transform: translate(2px, -2px);
-}
-
-/* ── WASTE · IVAGO LINK ─────────────────────────────────────── */
-.waste-ivago {
-  padding: 28px 28px 24px;
-  display: grid; grid-template-columns: 1fr auto; gap: 24px;
-  align-items: center;
-}
-.waste-ivago__title {
-  font-weight: 600; font-size: 18px; letter-spacing: -0.005em;
-  color: var(--fg); margin-bottom: 8px;
-}
-.waste-ivago__text {
-  font-size: 13px; line-height: 1.55; color: var(--fg-muted);
-  max-width: 50ch; margin-bottom: 16px;
-}
-.waste-ivago__button {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--mono); font-size: 11px; font-weight: 600;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  padding: 10px 16px; border-radius: 99px;
-  background: var(--accent); color: #0B1220;
-  text-decoration: none;
-  transition: transform 150ms var(--ease);
-}
-.waste-ivago__button:hover { transform: translateY(-1px); }
 `;
