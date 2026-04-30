@@ -22,33 +22,12 @@ import {
 // fallback path but the frontend prefers the direct call.
 const ODS_BASE = "https://data.stad.gent/api/explore/v2.1";
 
-const FALLBACK = {
-  parking: [
-    { name: "Kouter",            occupation: 78, total: 400,  free: 88 },
-    { name: "Vrijdagmarkt",      occupation: 92, total: 600,  free: 48 },
-    { name: "Sint-Pietersplein", occupation: 64, total: 680,  free: 245 },
-    { name: "Ramen",             occupation: 41, total: 320,  free: 189 },
-    { name: "Reep",              occupation: 85, total: 490,  free: 74 },
-    { name: "Savaanstraat",      occupation: 56, total: 320,  free: 141 },
-    { name: "B-Park The Loop",   occupation: 23, total: 2500, free: 1925 },
-    { name: "Dampoort",          occupation: 71, total: 210,  free: 61 },
-  ],
-  air: [
-    { station: "Baudelo",              no2: 18, pm25: 9,  pm10: 14 },
-    { station: "Lange Violettestraat", no2: 24, pm25: 11, pm10: 16 },
-    { station: "Muide",                no2: 31, pm25: 14, pm10: 22 },
-    { station: "Gent Centrum",         no2: 27, pm25: 12, pm10: 19 },
-  ],
-  events: [
-    { title: "Ghent Festivities — Opening",  where: "Sint-Baafsplein",  when: "Today · 20:00" },
-    { title: "Light Festival Preview Walk",  where: "Korenmarkt",       when: "Tomorrow · 19:30" },
-    { title: "Film Fest Ghent — Shorts",     where: "Sphinx Cinema",    when: "Sat · 21:00" },
-    { title: "Jazz at Handelsbeurs",         where: "Kouter 29",        when: "Sun · 20:30" },
-    { title: "Spring Book Fair",             where: "ICC Citadelpark",  when: "Next week" },
-    { title: "NTGent — The Inspector",       where: "Sint-Baafsplein",  when: "Fri · 20:15" },
-  ],
-  weather: { temp: 12, feels: 10, humidity: 72, code: 2, wind: 14, precip: 0.2, rainChance: 35, hourlyTemp: [] },
-  pumps: 24,
+// No fake fallback for parking, air, or events — if real data isn't available
+// the dashboard hides those sections rather than showing made-up numbers.
+// Weather has a tiny fallback only because Open-Meteo can transiently fail.
+const WEATHER_FALLBACK = {
+  temp: null, feels: null, humidity: null, code: 0, wind: null,
+  precip: 0, rainChance: 0, hourlyTemp: [],
 };
 
 const STATUS = {
@@ -126,7 +105,7 @@ async function discoverSlugs(keyword, label) {
   } catch {}
   try {
     const where = encodeURIComponent(`search("${keyword}")`);
-    const r = await fetch(`${ODS_BASE}/catalog/datasets?limit=20&where=${where}`);
+    const r = await fetch(`${ODS_BASE}/catalog/datasets?limit=20&where=${where}&select=dataset_id,metas`);
     const body = await r.json().catch(() => null);
     if (!r.ok) { console.warn(`[${label}] catalog search "${keyword}" failed`, body); return []; }
     const ids = (body?.results || []).map((d) => d.dataset_id).filter(Boolean);
@@ -182,42 +161,196 @@ async function fetchParking() {
   return rows;
 }
 
-async function fetchAir() {
-  const { rows } = await tryWithDiscovery({
-    hardcoded: ['luchtkwaliteit-gent', 'realtime-luchtkwaliteit-gent', 'luchtkwaliteit-meetstations-gent'],
-    keyword: 'luchtkwaliteit',
-    query: 'limit=20',
-    label: 'air',
-    parse: (x) => {
-      const station = x.station_name || x.name || x.station || x.naam || 'Station';
-      const no2  = Number(x.no2  ?? x.value_no2  ?? x.NO2  ?? 0);
-      const pm25 = Number(x.pm25 ?? x.value_pm25 ?? x.PM25 ?? 0);
-      const pm10 = Number(x.pm10 ?? x.value_pm10 ?? x.PM10 ?? 0);
-      if (!no2 && !pm25 && !pm10) return null;
-      return { station, no2, pm25, pm10, coords: pickCoords(x) };
-    },
-  });
-  return rows;
+// Real-time bike-share data — Bolt + Donkey Republic + Blue Bike + city bike parking.
+// Returns { totalBikes, totalParking, freeParking, fleets, parkings } so the Cycling
+// section can show one combined live count.
+async function fetchBikes() {
+  const FLEETS = [
+    { slug: 'bolt-deelfietsen-gent',                                        label: 'Bolt'           },
+    { slug: 'donkey-republic-beschikbaarheid-deelfietsen-per-station',      label: 'Donkey Republic' },
+    { slug: 'blue-bike-deelfietsen-gent-dampoort',                          label: 'Blue Bike (Dampoort)' },
+    { slug: 'blue-bike-deelfietsen-gent-sint-pieters-st-denijslaan',        label: 'Blue Bike (Sint-Pieters · Denijslaan)' },
+    { slug: 'blue-bike-deelfietsen-gent-sint-pieters-m-hendrikaplein',      label: 'Blue Bike (Sint-Pieters · Hendrikaplein)' },
+    { slug: 'blue-bike-deelfietsen-merelbeke-drongen-wondelgem',            label: 'Blue Bike (Merelbeke · Drongen · Wondelgem)' },
+  ];
+  const PARKINGS = [
+    { slug: 'real-time-bezettingen-fietsenstallingen-gent',                 label: 'Korenmarkt + Braunplein' },
+    { slug: 'real-time-bezetting-fietsenstalling-stadskantoor-gent',        label: 'Stadskantoor' },
+  ];
+
+  const fleets = await Promise.all(FLEETS.map(async ({ slug, label }) => {
+    try {
+      const r = await fetch(`${ODS_BASE}/catalog/datasets/${slug}/records?limit=100`);
+      if (!r.ok) { console.warn(`[bikes] ${slug} → HTTP ${r.status}`); return null; }
+      const d = await r.json();
+      const rows = d.results || [];
+      console.info(`[bikes] ${slug} → ${rows.length} records`);
+      // Different shapes: Bolt has per-bike rows, Donkey/Blue Bike have per-station rows
+      const available = rows.reduce((sum, x) => {
+        if (x.bikes_available != null) return sum + Number(x.bikes_available);
+        if (x.num_bikes_available != null) return sum + Number(x.num_bikes_available);
+        // Bolt: each row is one bike. Count rows that aren't reserved/disabled.
+        if (x.is_reserved != null || x.is_disabled != null) {
+          return (!x.is_reserved && !x.is_disabled) ? sum + 1 : sum;
+        }
+        return sum + 1;
+      }, 0);
+      return { label, slug, available, raw: rows };
+    } catch (err) {
+      console.warn(`[bikes] ${slug} threw`, err); return null;
+    }
+  }));
+
+  const parkings = await Promise.all(PARKINGS.map(async ({ slug, label }) => {
+    try {
+      const r = await fetch(`${ODS_BASE}/catalog/datasets/${slug}/records?limit=20`);
+      if (!r.ok) { console.warn(`[bike-parking] ${slug} → HTTP ${r.status}`); return null; }
+      const d = await r.json();
+      const rows = d.results || [];
+      console.info(`[bike-parking] ${slug} → ${rows.length} records`);
+      // total + free across all facilities in this dataset
+      const total = rows.reduce((s, x) => s + Number(x.totalplaces ?? x.parkingcapacity ?? 0), 0);
+      const free  = rows.reduce((s, x) => s + Number(x.freeplaces ?? x.vacantspaces ?? 0), 0);
+      const facilities = rows.map((x) => ({
+        name: x.facilityname || x.naam || x.name || label,
+        total: Number(x.totalplaces ?? x.parkingcapacity ?? 0),
+        free:  Number(x.freeplaces ?? x.vacantspaces ?? 0),
+        occupation: Number(x.bezetting ?? x.occupation ?? 0),
+      }));
+      return { label, slug, total, free, facilities };
+    } catch (err) {
+      console.warn(`[bike-parking] ${slug} threw`, err); return null;
+    }
+  }));
+
+  const liveFleets   = fleets.filter(Boolean);
+  const liveParkings = parkings.filter(Boolean);
+  return {
+    totalBikes:   liveFleets.reduce((s, f) => s + (f.available || 0), 0),
+    fleets:       liveFleets,
+    parkings:     liveParkings,
+    totalParking: liveParkings.reduce((s, p) => s + p.total, 0),
+    freeParking:  liveParkings.reduce((s, p) => s + p.free, 0),
+  };
 }
 
-async function fetchEvents() {
-  // Note: no order_by — that field name varies per dataset and a wrong one returns 400
-  const { rows } = await tryWithDiscovery({
-    hardcoded: ['cultuur-events-gent', 'evenementen-gent', 'cultuurevents-gent'],
-    keyword: 'evenement',
-    query: 'limit=8',
-    label: 'events',
-    parse: (x) => {
-      const title = x.title || x.titel || x.name || x.naam;
-      if (!title) return null;
-      return {
-        title,
-        where: x.location || x.locatie || x.venue || x.plaats || 'Gent',
-        when:  x.startdate || x.datum || x.start || x.date || '',
-      };
-    },
-  });
-  return rows;
+// ── Open-Meteo Air Quality (free, no key, CORS) ────────────────────────────
+// Returns PM2.5, PM10, NO2, O3 + European AQI for Ghent center.
+async function fetchAirQuality() {
+  const url =
+    "https://air-quality-api.open-meteo.com/v1/air-quality" +
+    "?latitude=51.0536&longitude=3.7250" +
+    "&current=pm2_5,pm10,nitrogen_dioxide,ozone,european_aqi,european_aqi_pm2_5,european_aqi_no2";
+  const r = await fetch(url);
+  if (!r.ok) { console.warn(`[air] open-meteo HTTP ${r.status}`); return null; }
+  const d = await r.json();
+  const c = d.current || {};
+  console.info('[air] open-meteo air quality', c);
+  return {
+    pm25:  c.pm2_5 != null ? Math.round(c.pm2_5) : null,
+    pm10:  c.pm10  != null ? Math.round(c.pm10)  : null,
+    no2:   c.nitrogen_dioxide != null ? Math.round(c.nitrogen_dioxide) : null,
+    o3:    c.ozone != null ? Math.round(c.ozone) : null,
+    aqi:   c.european_aqi != null ? Math.round(c.european_aqi) : null,
+    aqiPm: c.european_aqi_pm2_5 != null ? Math.round(c.european_aqi_pm2_5) : null,
+    aqiNo: c.european_aqi_no2   != null ? Math.round(c.european_aqi_no2)   : null,
+    time:  c.time || null,
+  };
+}
+
+// ── iRail train departures (free, no key, CORS) ────────────────────────────
+// Pulls live liveboards for Gent-Sint-Pieters + Gent-Dampoort, merges + sorts.
+async function fetchTrains() {
+  const STATIONS = [
+    { id: 'BE.NMBS.008892007', name: 'Gent-Sint-Pieters' },
+    { id: 'BE.NMBS.008892106', name: 'Gent-Dampoort' },
+  ];
+  const all = await Promise.all(STATIONS.map(async ({ id, name }) => {
+    try {
+      const url = `https://api.irail.be/liveboard/?id=${encodeURIComponent(id)}&arrdep=departure&format=json&lang=en`;
+      const r = await fetch(url);
+      if (!r.ok) { console.warn(`[trains] ${name} HTTP ${r.status}`); return []; }
+      const d = await r.json();
+      const list = d?.departures?.departure || [];
+      console.info(`[trains] ${name} → ${list.length} departures`);
+      return list.map((t) => ({
+        station: name,
+        time:     t.time ? new Date(Number(t.time) * 1000) : null,
+        delay:    Number(t.delay || 0),                       // seconds
+        platform: t.platform || '?',
+        canceled: t.canceled === '1',
+        toStation: t.station || t.stationinfo?.name || '',
+        vehicle:  t.vehicle?.replace(/^BE\.NMBS\./, '') || '',
+      }));
+    } catch (err) {
+      console.warn(`[trains] ${name} threw`, err); return [];
+    }
+  }));
+  return all.flat()
+    .filter((t) => t.time)
+    .sort((a, b) => a.time - b.time)
+    .slice(0, 8);
+}
+
+// ── Ghent bike counter poles (real-time cyclists/hour) ─────────────────────
+async function fetchBikeCounters() {
+  const SLUGS = [
+    'fietstelpaal-bijlokekaai-2021-gent',
+    'fietstelpaal-dampoort-noord-2024-gent',
+    'fietstelpaal-gaardeniersbrug-2023',
+    'fietstelpaal-groendreef-2021-gent',
+  ];
+  const all = await Promise.all(SLUGS.map(async (slug) => {
+    try {
+      // Most recent record only, ordered by date desc if supported
+      const r = await fetch(`${ODS_BASE}/catalog/datasets/${slug}/records?limit=1&order_by=ldatetime%20desc`);
+      if (!r.ok) {
+        // Fallback without order_by — field name varies between counters
+        const r2 = await fetch(`${ODS_BASE}/catalog/datasets/${slug}/records?limit=1`);
+        if (!r2.ok) { console.warn(`[counters] ${slug} HTTP ${r2.status}`); return null; }
+        const d2 = await r2.json();
+        return parseCounter(slug, d2.results?.[0]);
+      }
+      const d = await r.json();
+      return parseCounter(slug, d.results?.[0]);
+    } catch (err) {
+      console.warn(`[counters] ${slug} threw`, err); return null;
+    }
+  }));
+  return all.filter(Boolean);
+}
+
+function parseCounter(slug, x) {
+  if (!x) return null;
+  // Different counters use different field names — try a few
+  const count = Number(
+    x.aantal ?? x.count ?? x.fietsers ?? x.cyclists ??
+    x.totaal ?? x.value ?? x.aantal_fietsers ?? 0
+  );
+  const name = x.naam || x.location || x.locatie || slug.replace(/^fietstelpaal-|-\d{4}.*$/g, '').replace(/-/g, ' ');
+  return { slug, name, count, time: x.ldatetime || x.datum || x.timestamp || null };
+}
+
+// ── Waterinfo (Vlaamse Waterweg) — Lys/Scheldt water levels ────────────────
+// Note: waterinfo.be exposes JSON via undocumented endpoints. Best-effort.
+async function fetchWater() {
+  // Open-Meteo provides marine/water info too, but for canal levels we use a
+  // simple curated set — Waterinfo's JSON shape is unstable. For now we read
+  // Open-Meteo's marine API for the closest tidal point (Vlissingen, mouth of Scheldt).
+  try {
+    const r = await fetch('https://marine-api.open-meteo.com/v1/marine?latitude=51.45&longitude=3.6&current=wave_height,sea_level_height_msl');
+    if (!r.ok) { console.warn(`[water] HTTP ${r.status}`); return null; }
+    const d = await r.json();
+    const c = d.current || {};
+    console.info('[water] open-meteo marine', c);
+    return {
+      waveHeight: c.wave_height != null ? Number(c.wave_height) : null,
+      seaLevel:   c.sea_level_height_msl != null ? Number(c.sea_level_height_msl) : null,
+      time: c.time || null,
+    };
+  } catch (err) {
+    console.warn('[water] threw', err); return null;
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -260,57 +393,72 @@ const BulletChart = ({ value, total, label, sublabel }) => {
 
 export default function GhentOps() {
   const [parking, setParking] = useState(null);
-  const [air, setAir]         = useState(null);
-  const [events, setEvents]   = useState(null);
+  const [bikes, setBikes]     = useState(null);
   const [weather, setWeather] = useState(null);
-  const [liveMode, setLiveMode] = useState({ parking: false, air: false, events: false, weather: false });
+  const [air, setAir]         = useState(null);
+  const [trains, setTrains]   = useState(null);
+  const [counters, setCounters] = useState(null);
+  const [water, setWater]     = useState(null);
+  const [liveMode, setLiveMode] = useState({
+    parking: false, bikes: false, weather: false,
+    air: false, trains: false, counters: false, water: false,
+  });
   const [lastUpdate, setLastUpdate] = useState(null);
   const [loading, setLoading]   = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
-    try { const p = await fetchParking(); if (p.length) { setParking(p); setLiveMode((m) => ({ ...m, parking: true })); } else setParking(FALLBACK.parking); }
-    catch { setParking(FALLBACK.parking); }
-    try { const a = await fetchAir(); if (a.length) { setAir(a); setLiveMode((m) => ({ ...m, air: true })); } else setAir(FALLBACK.air); }
-    catch { setAir(FALLBACK.air); }
-    try { const e = await fetchEvents(); if (e.length) { setEvents(e); setLiveMode((m) => ({ ...m, events: true })); } else setEvents(FALLBACK.events); }
-    catch { setEvents(FALLBACK.events); }
+    try { const p = await fetchParking(); if (p.length) { setParking(p); setLiveMode((m) => ({ ...m, parking: true })); } else { setParking([]); setLiveMode((m) => ({ ...m, parking: false })); } }
+    catch { setParking([]); setLiveMode((m) => ({ ...m, parking: false })); }
+    try {
+      const b = await fetchBikes();
+      const isLive = (b.fleets.length > 0 || b.parkings.length > 0);
+      setBikes(b);
+      setLiveMode((m) => ({ ...m, bikes: isLive }));
+    } catch { setBikes(null); setLiveMode((m) => ({ ...m, bikes: false })); }
     try { const w = await fetchWeather(); setWeather(w); setLiveMode((m) => ({ ...m, weather: true })); }
-    catch { setWeather(FALLBACK.weather); }
+    catch { setWeather(WEATHER_FALLBACK); setLiveMode((m) => ({ ...m, weather: false })); }
+    try { const a = await fetchAirQuality(); if (a) { setAir(a); setLiveMode((m) => ({ ...m, air: true })); } else { setAir(null); setLiveMode((m) => ({ ...m, air: false })); } }
+    catch { setAir(null); setLiveMode((m) => ({ ...m, air: false })); }
+    try { const t = await fetchTrains(); if (t.length) { setTrains(t); setLiveMode((m) => ({ ...m, trains: true })); } else { setTrains([]); setLiveMode((m) => ({ ...m, trains: false })); } }
+    catch { setTrains([]); setLiveMode((m) => ({ ...m, trains: false })); }
+    try { const c = await fetchBikeCounters(); if (c.length) { setCounters(c); setLiveMode((m) => ({ ...m, counters: true })); } else { setCounters([]); setLiveMode((m) => ({ ...m, counters: false })); } }
+    catch { setCounters([]); setLiveMode((m) => ({ ...m, counters: false })); }
+    try { const wat = await fetchWater(); if (wat) { setWater(wat); setLiveMode((m) => ({ ...m, water: true })); } else { setWater(null); setLiveMode((m) => ({ ...m, water: false })); } }
+    catch { setWater(null); setLiveMode((m) => ({ ...m, water: false })); }
     setLastUpdate(new Date()); setLoading(false);
   }, []);
 
   useEffect(() => { loadAll(); const id = setInterval(loadAll, 5 * 60 * 1000); return () => clearInterval(id); }, [loadAll]);
 
-  const parkData = parking || FALLBACK.parking;
-  const airData  = air     || FALLBACK.air;
-  const evData   = events  || FALLBACK.events;
-  const wxData   = weather || FALLBACK.weather;
+  const parkData = parking || [];
+  const bikesData = bikes;            // null until first load completes
+  const wxData   = weather || WEATHER_FALLBACK;
 
   const totalSpaces = parkData.reduce((a, p) => a + p.total, 0);
   const freeSpaces  = parkData.reduce((a, p) => a + p.free, 0);
   const cityOcc     = totalSpaces ? Math.round(((totalSpaces - freeSpaces) / totalSpaces) * 100) : 0;
   const cityStatus  = occStatus(cityOcc);
 
-  const avgNo2 = airData.length ? Math.round(airData.reduce((a, s) => a + s.no2, 0) / airData.length) : 0;
-  const airKpiStatus = airStatus(avgNo2);
-
-  const emptiest = [...parkData].sort((a, b) => a.occupation - b.occupation)[0];
-  const fullest  = [...parkData].sort((a, b) => b.occupation - a.occupation)[0];
+  const emptiest = parkData.length ? [...parkData].sort((a, b) => a.occupation - b.occupation)[0] : null;
+  const fullest  = parkData.length ? [...parkData].sort((a, b) => b.occupation - a.occupation)[0] : null;
 
   const wxDesc  = describeWeather(wxData.code);
   const quip    = weatherQuip(wxData);
   const gem     = gemOfTheDay();
 
   const call = useMemo(() => {
+    if (!emptiest || !fullest) return { level: "info", head: "Loading live data…", body: "Pulling parking, bikes, and weather from data.stad.gent." };
     if (cityOcc > 85) return { level: "alert", head: "Leave the car — the city is packed.", body: `Garages at ${cityOcc}%. Take the tram or hop on a bike.` };
-    if (avgNo2 > 35)  return { level: "warn",  head: "Air's a bit heavy today.",  body: `NO₂ around ${avgNo2} µg/m³. Quieter streets are kinder on the lungs.` };
     if (wxData.rainChance > 70) return { level: "warn", head: "Rain coming through.", body: "Grab an umbrella. The Lys won't mind, but you will." };
-    if (avgNo2 < 20 && cityOcc < 70 && wxData.code <= 2) return { level: "ok", head: "A rare perfect day.", body: `Clean air (NO₂ ${avgNo2}), ${wxData.temp}°C, and the roads breathe. Graslei is calling.` };
+    if (cityOcc < 50 && wxData.code <= 2) return { level: "ok", head: "Quiet streets, clear sky.", body: `Garages at ${cityOcc}%, ${wxData.temp}°C. Graslei is calling.` };
     return { level: "ok", head: `${emptiest.name} is open — ${emptiest.free} spaces free.`, body: `Only ${emptiest.occupation}% full. Avoid ${fullest.name} (${fullest.occupation}%).` };
-  }, [cityOcc, avgNo2, wxData, emptiest, fullest]);
+  }, [cityOcc, wxData, emptiest, fullest]);
 
-  const isLoaded = parking && air && events && weather;
+  const parkingLoaded = !!(parking && parking.length);
+  const bikesLoaded   = !!(bikes && (bikes.fleets.length || bikes.parkings.length));
+  const weatherLoaded = !!(weather && weather.temp != null);
+  const isLoaded      = parkingLoaded && weatherLoaded;
 
   return (
     <div className="ops-root">
@@ -331,8 +479,7 @@ export default function GhentOps() {
           <div className="streams" title="Live status of each data source">
             {[
               { key: 'parking', label: 'Park' },
-              { key: 'air',     label: 'Air'  },
-              { key: 'events',  label: 'Evt'  },
+              { key: 'bikes',   label: 'Bike' },
               { key: 'weather', label: 'Wx'   },
             ].map(({ key, label }) => (
               <span key={key} className={`stream-pill ${liveMode[key] ? 'stream-pill--live' : 'stream-pill--sample'}`}>
@@ -381,10 +528,10 @@ export default function GhentOps() {
               <div className="kpi__mini-bar"><div className="kpi__mini-fill" style={{ width: `${cityOcc}%`, background: cityStatus.color }} /></div>
             </div>
             <div className="kpi" role="listitem">
-              <div className="kpi__head"><Wind size={14} aria-hidden="true" /><span className="kpi__title">Air · NO₂</span>
-                <span className={`dot dot--${airKpiStatus === STATUS.ok ? "ok" : airKpiStatus === STATUS.warn ? "warn" : "alert"}`} aria-hidden="true" /></div>
-              <div className="kpi__value tabular">{isLoaded ? avgNo2 : "—"}<span className="kpi__unit">µg/m³</span></div>
-              <div className="kpi__sub">{isLoaded ? airKpiStatus.label : <Skeleton h={12} w={80} />}</div>
+              <div className="kpi__head"><Bike size={14} aria-hidden="true" /><span className="kpi__title">Bikes live</span>
+                <span className={`dot dot--${bikesLoaded ? 'ok' : 'sample'}`} aria-hidden="true" /></div>
+              <div className="kpi__value tabular">{bikesLoaded ? bikesData.totalBikes.toLocaleString() : "—"}</div>
+              <div className="kpi__sub">{bikesLoaded ? `across ${bikesData.fleets.length} fleet${bikesData.fleets.length === 1 ? '' : 's'}` : <Skeleton h={12} w={80} />}</div>
             </div>
             <div className="kpi" role="listitem">
               <div className="kpi__head">{weatherIcon(wxDesc.icon, 14)}<span className="kpi__title">Weather</span>
@@ -405,74 +552,40 @@ export default function GhentOps() {
           </div>
         </section>
 
-        {/* ── WEATHER + AIR QUALITY ─────────────────────────────────── */}
-        <section className="split-2" aria-label="Weather and air quality">
-          <div className="panel" aria-labelledby="wx-h">
-            <header className="panel__head">
-              <div>
-                <span className="panel__kicker">01 · ENVIRONMENT</span>
-                <h2 id="wx-h" className="panel__title">Right now</h2>
-              </div>
-              <div className="wx-icon-big">{weatherIcon(wxDesc.icon, 34)}</div>
-            </header>
-            <div className="wx-hero">
-              <div className="wx-hero__temp tabular">{wxData.temp}<span>°C</span></div>
-              <div className="wx-hero__desc">
-                <div className="wx-hero__label">{wxDesc.label}</div>
-                <div className="wx-hero__feels">feels like {wxData.feels}°</div>
-              </div>
+        {/* ── WEATHER (Open-Meteo) ─────────────────────────────────── */}
+        <section className="panel" aria-labelledby="wx-h">
+          <header className="panel__head">
+            <div>
+              <span className="panel__kicker">01 · ENVIRONMENT</span>
+              <h2 id="wx-h" className="panel__title">Right now</h2>
             </div>
-            <div className="wx-grid">
-              <div className="wx-stat">
-                <span className="wx-stat__k">Wind</span>
-                <span className="wx-stat__v tabular">{wxData.wind} <em>km/h</em></span>
-              </div>
-              <div className="wx-stat">
-                <span className="wx-stat__k">Humidity</span>
-                <span className="wx-stat__v tabular">{wxData.humidity}%</span>
-              </div>
-              <div className="wx-stat">
-                <span className="wx-stat__k">Rain chance (6h)</span>
-                <span className="wx-stat__v tabular" style={{ color: wxData.rainChance > 60 ? "#60A5FA" : "var(--fg)" }}>
-                  {wxData.rainChance}%
-                </span>
-              </div>
-              <div className="wx-stat">
-                <span className="wx-stat__k">Precipitation</span>
-                <span className="wx-stat__v tabular">{wxData.precip} <em>mm</em></span>
-              </div>
+            <div className="wx-icon-big">{weatherIcon(wxDesc.icon, 34)}</div>
+          </header>
+          <div className="wx-hero">
+            <div className="wx-hero__temp tabular">{wxData.temp ?? "—"}<span>°C</span></div>
+            <div className="wx-hero__desc">
+              <div className="wx-hero__label">{wxDesc.label}</div>
+              <div className="wx-hero__feels">feels like {wxData.feels ?? "—"}°</div>
             </div>
           </div>
-
-          <div className="panel" aria-labelledby="air-h">
-            <header className="panel__head">
-              <div>
-                <span className="panel__kicker">02 · AIR QUALITY</span>
-                <h2 id="air-h" className="panel__title">What you're breathing</h2>
-              </div>
-              <span className="chip"><CircleAlert size={11} aria-hidden="true" /> Threshold 25 µg/m³</span>
-            </header>
-            <div className="panel__map">
-              {isLoaded && (
-                <MiniMap height={160} markers={airData.map((s) => {
-                  const c = s.coords || lookupAirStation(s.station);
-                  if (!c) return null;
-                  const st = airStatus(s.no2);
-                  return { lng: c.lng, lat: c.lat, color: st.color, size: 14 + s.no2 / 3, label: s.station, sublabel: `NO₂ ${s.no2} µg/m³ · ${st.label}` };
-                }).filter(Boolean)} />
-              )}
+          <div className="wx-grid">
+            <div className="wx-stat">
+              <span className="wx-stat__k">Wind</span>
+              <span className="wx-stat__v tabular">{wxData.wind ?? "—"} <em>km/h</em></span>
             </div>
-            <div className="air-compact">
-              {isLoaded ? airData.map((s, i) => {
-                const st = airStatus(s.no2); const key = st === STATUS.ok ? "ok" : st === STATUS.warn ? "warn" : "alert";
-                return (
-                  <div key={i} className="air-compact__row">
-                    <span className="air-compact__name">{s.station}</span>
-                    <span className="air-compact__val tabular" style={{ color: st.color }}>{s.no2} <em>µg/m³</em></span>
-                    <span className={`badge badge--${key}`}><span className={`dot dot--${key}`} aria-hidden="true" />{st.label}</span>
-                  </div>
-                );
-              }) : <Skeleton h={80} />}
+            <div className="wx-stat">
+              <span className="wx-stat__k">Humidity</span>
+              <span className="wx-stat__v tabular">{wxData.humidity ?? "—"}%</span>
+            </div>
+            <div className="wx-stat">
+              <span className="wx-stat__k">Rain chance (6h)</span>
+              <span className="wx-stat__v tabular" style={{ color: wxData.rainChance > 60 ? "#60A5FA" : "var(--fg)" }}>
+                {wxData.rainChance}%
+              </span>
+            </div>
+            <div className="wx-stat">
+              <span className="wx-stat__k">Precipitation</span>
+              <span className="wx-stat__v tabular">{wxData.precip} <em>mm</em></span>
             </div>
           </div>
         </section>
@@ -539,24 +652,47 @@ export default function GhentOps() {
             <header className="panel__head">
               <div>
                 <span className="panel__kicker">05 · CYCLING</span>
-                <h2 id="bike-h" className="panel__title">Cycling in Ghent</h2>
+                <h2 id="bike-h" className="panel__title">Shared bikes — live</h2>
               </div>
-              <span className="chip"><Bike size={11} aria-hidden="true" /> Always a good idea</span>
+              <span className="chip">
+                <Bike size={11} aria-hidden="true" />
+                {bikesLoaded ? `${bikesData.fleets.length} fleet${bikesData.fleets.length === 1 ? '' : 's'}` : 'Loading…'}
+              </span>
             </header>
             <div className="cycling-hero">
-              <div className="cycling-hero__number tabular">63<span>km</span></div>
-              <div className="cycling-hero__label">of dedicated cycle streets</div>
+              <div className="cycling-hero__number tabular">
+                {bikesLoaded ? bikesData.totalBikes.toLocaleString() : '—'}<span>bikes</span>
+              </div>
+              <div className="cycling-hero__label">available right now across Ghent</div>
               <div className="cycling-hero__body">
-                Ghent has made bikes the easiest way through the centre — the
-                city's circulation plan keeps most cars out of the core.
-                Grab a bike, you'll arrive faster than the tram.
+                Combining real-time feeds from Bolt, Donkey Republic and Blue Bike.
+                Updates every few minutes, straight from <em>data.stad.gent</em>.
               </div>
             </div>
-            <div className="stream-foot">
-              <div><span className="foot__k">Free pumps</span><span className="foot__v tabular">24</span></div>
-              <div><span className="foot__k">Cycle streets</span><span className="foot__v tabular">63 <em>km</em></span></div>
-              <div><span className="foot__k">Repair points</span><span className="foot__v tabular">47</span></div>
-            </div>
+            {bikesLoaded && bikesData.fleets.length > 0 && (
+              <div className="bullet-grid" style={{ padding: '0 16px 16px' }}>
+                {bikesData.fleets.map((f, i) => (
+                  <div key={i} className="bullet">
+                    <div className="bullet__head">
+                      <div>
+                        <div className="bullet__label">{f.label}</div>
+                        <div className="bullet__sub tabular">live from data.stad.gent</div>
+                      </div>
+                      <div className="bullet__value tabular" style={{ color: 'var(--accent)' }}>
+                        {f.available.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {bikesLoaded && bikesData.totalParking > 0 && (
+              <div className="stream-foot">
+                <div><span className="foot__k">Bike-parking spots</span><span className="foot__v tabular">{bikesData.totalParking.toLocaleString()}</span></div>
+                <div><span className="foot__k">Free now</span><span className="foot__v tabular">{bikesData.freeParking.toLocaleString()}</span></div>
+                <div><span className="foot__k">Stations covered</span><span className="foot__v tabular">{bikesData.parkings.length}</span></div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -618,43 +754,8 @@ export default function GhentOps() {
           </div>
         </section>
 
-        {/* ── EVENTS ─────────────────────────────────────────────────── */}
-        <section className="panel" aria-labelledby="events-h">
-          <header className="panel__head">
-            <div>
-              <span className="panel__kicker">08 · CULTURE</span>
-              <h2 id="events-h" className="panel__title">Upcoming in the city</h2>
-            </div>
-            <span className="chip"><CalendarDays size={11} aria-hidden="true" /> Click to open in Maps</span>
-          </header>
-          <div className="panel__map">
-            {isLoaded && (
-              <MiniMap height={200} markers={evData.slice(0, 6).map((e) => {
-                const c = lookupVenue(e.where); if (!c) return null;
-                return {
-                  lng: c.lng, lat: c.lat, color: "#22C55E", size: 16, label: e.title, sublabel: `${e.where} · ${e.when}`,
-                  onClick: () => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.where + ", Gent")}`, "_blank", "noopener"),
-                };
-              }).filter(Boolean)} />
-            )}
-          </div>
-          <div className="events-grid">
-            {isLoaded ? evData.slice(0, 6).map((e, i) => {
-              const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((e.where || "Gent") + ", Gent")}`;
-              return (
-                <a key={i} href={mapsUrl} target="_blank" rel="noopener noreferrer" className="event" aria-label={`${e.title} at ${e.where}, ${e.when}`}>
-                  <span className="event__num tabular">{String(i + 1).padStart(2, "0")}</span>
-                  <div className="event__body">
-                    <div className="event__when tabular">{e.when}</div>
-                    <div className="event__title">{e.title}</div>
-                    <div className="event__where"><MapPin size={11} aria-hidden="true" /> {e.where}</div>
-                  </div>
-                  <ArrowUpRight size={14} className="event__arrow" aria-hidden="true" />
-                </a>
-              );
-            }) : Array.from({ length: 6 }).map((_, i) => <div key={i} className="event"><Skeleton h={56} /></div>)}
-          </div>
-        </section>
+        {/* Events section removed — Ghent's open-data catalogue has no real-time
+            events feed. Hand-curated nightlife stays in the next panel. */}
 
         {/* ── NIGHTLIFE ──────────────────────────────────────────────── */}
         <section className="panel" aria-labelledby="nightlife-h">
@@ -1210,82 +1311,4 @@ const css = `
   transition: transform 150ms var(--ease);
 }
 .waste-ivago__button:hover { transform: translateY(-1px); }
-.waste-ivago__tags {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  align-self: center;
-  max-width: 180px;
-}
-.waste-ivago__tag {
-  font-family: var(--mono); font-weight: 700; font-size: 11px; letter-spacing: 0.05em;
-  padding: 6px 10px; border-radius: 4px;
-}
-@media (max-width: 720px) {
-  .waste-ivago { grid-template-columns: 1fr; }
-  .waste-ivago__tags { max-width: 100%; }
-}
-
-/* ── SKELETON ────────────────────────────────────────────────── */
-.skeleton {
-  background: linear-gradient(90deg, var(--muted) 0%, var(--surface-2) 50%, var(--muted) 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s linear infinite;
-}
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-
-/* ── FOOTER ──────────────────────────────────────────────────── */
-.foot {
-  position: relative; margin-top: 40px;
-  background: var(--bg);
-  border-top: 1px solid var(--border);
-  overflow: hidden;
-}
-.foot__skyline {
-  position: absolute; left: 0; right: 0; top: 0;
-  pointer-events: none;
-  display: flex; justify-content: center;
-}
-.foot__content {
-  position: relative; z-index: 1;
-  max-width: 1440px; margin: 0 auto;
-  padding: 60px 24px 24px;
-  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px;
-  align-items: end;
-}
-.foot__title { font-weight: 700; font-size: 16px; color: var(--fg); margin-bottom: 4px; letter-spacing: -0.005em; }
-.foot__tagline { font-size: 12px; color: var(--fg-muted); }
-.foot__mid { text-align: center; }
-.foot__meta { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--fg-dim); margin-bottom: 6px; }
-.foot__right { text-align: right; }
-.foot__byline {
-  font-size: 13px; color: var(--fg);
-  padding-bottom: 6px; border-bottom: 1px solid var(--accent); display: inline-block;
-}
-.foot__byline strong { font-weight: 600; color: var(--accent); }
-.foot__small { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; color: var(--fg-dim); margin-top: 6px; text-transform: uppercase; }
-
-/* ── RESPONSIVE ──────────────────────────────────────────────── */
-@media (max-width: 1100px) {
-  .topbar__crumb { display: none; }
-  .hero { grid-template-columns: 1fr; }
-  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
-  .bullet-grid { grid-template-columns: repeat(2, 1fr); }
-  .events-grid { grid-template-columns: repeat(2, 1fr); }
-  .venues-grid { grid-template-columns: repeat(2, 1fr); }
-  .split-2 { grid-template-columns: 1fr; }
-  .foot__content { grid-template-columns: 1fr; text-align: center; gap: 20px; }
-  .foot__right { text-align: center; }
-}
-@media (max-width: 640px) {
-  .main { padding: 16px; gap: 16px; }
-  .topbar { padding: 10px 16px; }
-  .kpi-grid { grid-template-columns: 1fr; }
-  .bullet-grid { grid-template-columns: 1fr; }
-  .events-grid { grid-template-columns: 1fr; }
-  .venues-grid { grid-template-columns: 1fr; }
-  .waste__grid { grid-template-columns: 1fr; }
-  .wx-grid { grid-template-columns: 1fr; }
-  .stream-foot { grid-template-columns: 1fr 1fr; }
-  .call__head { font-size: 22px; }
-  .wx-hero__temp { font-size: 42px; }
-}
 `;
