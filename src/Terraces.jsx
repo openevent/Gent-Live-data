@@ -117,19 +117,20 @@ export default function Terraces({ weather }) {
   const inSun = ranked.filter(t => t.status.key === "sun").length;
   const total = ranked.length;
 
-  // Map markers — top 20 for performance
-  const markers = ranked.slice(0, 20).map(t => ({
-    lng:      t.coords.lng,
-    lat:      t.coords.lat,
-    color:    STATUS_COLORS[t.status.key] || "#94A3B8",
-    size:     t.status.key === "sun" ? 18 : 12,
-    label:    t.name,
-    sublabel: `${t.status.label} · ${t.area}`,
-    onClick:  () => window.open(
-      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t.mapsQuery)}`,
-      "_blank", "noopener"
-    ),
-  }));
+  // Map markers — all terraces, sunny ones pulse and are larger
+  const markers = ranked.map(t => {
+    const mapsHref = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t.mapsQuery)}`;
+    return {
+      lng:      t.coords.lng,
+      lat:      t.coords.lat,
+      color:    STATUS_COLORS[t.status.key] || "#94A3B8",
+      size:     t.status.key === "sun" ? 16 : t.status.key === "soon" ? 12 : 9,
+      pulse:    t.status.key === "sun",
+      label:    t.name,
+      sublabel: `${t.status.label} · ${t.area}`,
+      mapsHref,
+    };
+  });
 
   // Overall headline
   let headline, headlineTone;
@@ -207,7 +208,7 @@ export default function Terraces({ weather }) {
 
       {/* ── Map ── */}
       <div className="panel__map">
-        <MiniMap height={200} markers={markers} />
+        <MiniMap height={320} markers={markers} zoom={13} />
       </div>
 
       {/* ── Grid ── */}

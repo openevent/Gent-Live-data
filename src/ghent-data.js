@@ -100,20 +100,24 @@ export function gemOfTheDay() {
 // Curated list of Ghent's known swim + water-monitored locations
 export const WATER_SPOTS = [
   { name: "Blaarmeersen",   kind: "Lake · official swim zone",       status: "ok",   note: "Lifeguards · May–Sep",             coords: { lat: 51.0396, lng: 3.6848 } },
-  { name: "Portus Ganda",   kind: "Urban canal · designated swim",   status: "ok",   note: "Open-air pool feel",                coords: { lat: 51.0568, lng: 3.7340 } },
+  { name: "Portus Ganda",   kind: "Marina · popular swim spot",      status: "warn", note: "Popular but not officially patrolled", coords: { lat: 51.0568, lng: 3.7340 } },
   { name: "Houtdok",        kind: "Harbour dock · summer swim",      status: "warn", note: "Check before — algae possible",     coords: { lat: 51.0680, lng: 3.7257 } },
   { name: "Watersportbaan", kind: "Rowing lake · no swimming",       status: "info", note: "Rowing + SUP only",                 coords: { lat: 51.0392, lng: 3.6928 } },
 ];
 
 // ── De Lijn tram/bus stops near Ghent centre ────────────────────────────
-// Static list — full realtime requires De Lijn API key
+// Ghent operates tram lines 1, 2, and 4 (as of 2025).
+// Line 1: Flanders Expo ↔ UZ Gent (via Sint-Pieters, Korenmarkt, Rabot)
+// Line 2: Zwijnaarde ↔ Evergem (via Sint-Pieters, Korenmarkt, Dampoort)
+// Line 4: Moscou ↔ Oostakker (via Sint-Pieters, Korenmarkt)
+// For real-time departures check the De Lijn app or https://www.delijn.be
 export const TRANSIT_STOPS = [
-  { name: "Korenmarkt",       lines: ["1", "2", "4"],      kind: "tram" },
-  { name: "Gent Zuid",        lines: ["1", "2", "4", "42"], kind: "tram+bus" },
-  { name: "Sint-Pietersstation", lines: ["1", "4"],         kind: "tram" },
-  { name: "Gravensteen",      lines: ["3"],                 kind: "tram" },
-  { name: "Dampoort",         lines: ["3", "17", "18"],     kind: "tram+bus" },
-  { name: "Rabot",            lines: ["1"],                 kind: "tram" },
+  { name: "Korenmarkt",          lines: ["1", "2", "4"],  kind: "tram",     delijnUrl: "https://www.delijn.be/nl/content/haltedetails.html?haltenummer=200489" },
+  { name: "Sint-Pietersstation", lines: ["1", "2", "4"],  kind: "tram",     delijnUrl: "https://www.delijn.be" },
+  { name: "Gent-Zuid",           lines: ["1", "2", "4"],  kind: "tram+bus", delijnUrl: "https://www.delijn.be" },
+  { name: "Dampoort",            lines: ["2", "17", "18"], kind: "tram+bus", delijnUrl: "https://www.delijn.be" },
+  { name: "Rabot",               lines: ["1"],             kind: "tram",     delijnUrl: "https://www.delijn.be" },
+  { name: "Vrijdagmarkt",        lines: ["4"],             kind: "tram",     delijnUrl: "https://www.delijn.be" },
 ];
 
 // ── Nightlife venues — curated Ghent club + music scene ─────────────────

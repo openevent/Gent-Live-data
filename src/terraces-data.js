@@ -63,12 +63,6 @@ export const TERRACES = [
     mapsQuery: "Bar Bask Vrijdagmarkt Gent",
   },
   {
-    name: "'t Galgenhuisje (Vrijdagmarkt side)", area: "Vrijdagmarkt", type: "bar", priceLevel: "€€",
-    coords: { lat: 51.0570, lng: 3.7280 }, facing: "S",
-    sunWindow: [11, 18], vibe: "Square-side seating when weather allows",
-    mapsQuery: "Vrijdagmarkt Gent terras",
-  },
-  {
     name: "De Foyer", area: "Vrijdagmarkt", type: "brasserie", priceLevel: "€€",
     coords: { lat: 51.0565, lng: 3.7281 }, facing: "W",
     sunWindow: [13, 19], vibe: "Old-school brasserie, reliable lunch",
@@ -143,10 +137,11 @@ export const TERRACES = [
     mapsQuery: "Het Waterhuis aan de Bierkant Gent",
   },
   {
-    name: "Sint-Veerleplein terraces", area: "Sint-Veerleplein", type: "bar", priceLevel: "€€",
-    coords: { lat: 51.0573, lng: 3.7209 }, facing: "E",
-    sunWindow: [9, 15], vibe: "Small square opposite the castle",
-    mapsQuery: "Sint-Veerleplein Gent",
+    // De Planck — real bar at Sint-Veerleplein with castle views
+    name: "De Planck", area: "Sint-Veerleplein", type: "bar", priceLevel: "€€",
+    coords: { lat: 51.0576, lng: 3.7207 }, facing: "E",
+    sunWindow: [9, 14], vibe: "Castle-side terrace, morning sun, local crowd",
+    mapsQuery: "De Planck Sint-Veerleplein Gent",
   },
 
   // ─── Sint-Jacobs / Bij Sint-Jacobs ────────────────────────────────────
@@ -231,16 +226,25 @@ export const TERRACES = [
 
   // ─── Prinsenhof / Rabot ────────────────────────────────────────────────
   {
-    name: "Tierenteyn-Verlent courtyard", area: "Groentenmarkt", type: "café", priceLevel: "€€",
-    coords: { lat: 51.0559, lng: 3.7233 }, facing: "S",
-    sunWindow: [11, 16], vibe: "Mustard shop courtyard, summer-only",
-    mapsQuery: "Tierenteyn Verlent Gent",
+    // Café Vlissinghe — oldest brown café in Belgium (1515), famous back garden
+    name: "Café Vlissinghe", area: "Blekerijstraat", type: "café", priceLevel: "€€",
+    coords: { lat: 51.0608, lng: 3.7271 }, facing: "SE",
+    sunWindow: [10, 15], vibe: "Belgium's oldest café, huge walled garden out back",
+    mapsQuery: "Café Vlissinghe Gent Blekerijstraat",
   },
   {
-    name: "Prinsenhof Square cafés", area: "Prinsenhof", type: "café", priceLevel: "€€",
-    coords: { lat: 51.0593, lng: 3.7169 }, facing: "S",
-    sunWindow: [10, 17], vibe: "Historic, quiet, tortoise fountain",
-    mapsQuery: "Prinsenhof Gent",
+    // Brasserie Pakhuis — converted warehouse, large terrace on Schuurkenstraat
+    name: "Brasserie Pakhuis", area: "Schuurkenstraat", type: "brasserie", priceLevel: "€€€",
+    coords: { lat: 51.0538, lng: 3.7238 }, facing: "S",
+    sunWindow: [11, 17], vibe: "Stunning iron-and-glass interior, terrace spills onto street",
+    mapsQuery: "Brasserie Pakhuis Gent Schuurkenstraat",
+  },
+  {
+    // Café Vooruit — iconic arts centre with large south-facing terrace
+    name: "Café Vooruit", area: "Sint-Pietersnieuwstraat", type: "café", priceLevel: "€",
+    coords: { lat: 51.0438, lng: 3.7252 }, facing: "S",
+    sunWindow: [11, 18], vibe: "Art-deco monument, student crowd, big terrace",
+    mapsQuery: "Café Vooruit Sint-Pietersnieuwstraat Gent",
   },
 ];
 

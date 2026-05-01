@@ -301,6 +301,47 @@ async function fetchWater() {
   } catch (err) { console.warn('[water] threw', err); return null; }
 }
 
+async function fetchNightlifeEvents() {
+  // uitdatabank-evenementen is a no-auth mirror of UiTdatabank events on data.stad.gent
+  const pad = (n) => String(n).padStart(2, "0");
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  const d7 = new Date(now.getTime() + 7 * 86400000);
+  const nextStr = `${d7.getFullYear()}-${pad(d7.getMonth() + 1)}-${pad(d7.getDate())}`;
+
+  const dateFilter = encodeURIComponent(
+    `date_start >= date'${todayStr}' AND date_start <= date'${nextStr}'`
+  );
+
+  const { rows } = await tryWithDiscovery({
+    hardcoded: ["uitdatabank-evenementen"],
+    keyword:   "uitdatabank evenementen",
+    query:     `limit=40&order_by=date_start+asc&where=${dateFilter}`,
+    label:     "events",
+    parse: (x) => {
+      const name = x.name || x.naam || x.title || x.titel;
+      if (!name || typeof name !== "string" || !name.trim()) return null;
+      const dateRaw = x.date_start || x.startdatum || x.start;
+      const date    = dateRaw ? new Date(dateRaw) : null;
+      const endRaw  = x.date_end || x.einddatum || x.end;
+      const end     = endRaw ? new Date(endRaw) : null;
+      return {
+        name:     String(name).trim(),
+        venue:    String(x.location_name || x.locatienaam || x.locatie || x.venue || "").trim(),
+        date:     date && !isNaN(date) ? date : null,
+        end:      end  && !isNaN(end)  ? end  : null,
+        category: String(x.type || x.categorie || x.tags || "").trim(),
+        url:      x.url || x.website || x.link || null,
+      };
+    },
+  });
+
+  return rows
+    .filter((e) => !e.date || e.date >= now)
+    .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0))
+    .slice(0, 16);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SIDEBAR NAV CONFIG
 // ═══════════════════════════════════════════════════════════════════════════
@@ -313,7 +354,7 @@ const NAV_ITEMS = [
   { id: "sec-bikes",     Icon: Bike,     label: "Bikes",         liveKey: "bikes"    },
   { id: "sec-counters",  Icon: Activity, label: "Bike Counters", liveKey: "counters" },
   { id: "sec-sea",       Icon: Waves,    label: "North Sea",     liveKey: "water"    },
-  { id: "sec-nightlife", Icon: Music,    label: "Nightlife",     liveKey: null       },
+  { id: "sec-nightlife", Icon: Music,    label: "Nightlife",     liveKey: "events"   },
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -348,9 +389,10 @@ export default function GhentOps() {
   const [trains,   setTrains]   = useState(null);
   const [counters, setCounters] = useState(null);
   const [water,    setWater]    = useState(null);
+  const [events,   setEvents]   = useState(null);
   const [liveMode, setLiveMode] = useState({
     parking: false, bikes: false, weather: false,
-    air: false, trains: false, counters: false, water: false,
+    air: false, trains: false, counters: false, water: false, events: false,
   });
   const [lastUpdate, setLastUpdate] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -371,6 +413,8 @@ export default function GhentOps() {
     catch { setCounters([]); setLiveMode(m => ({ ...m, counters: false })); }
     try { const wat = await fetchWater(); if (wat) { setWater(wat); setLiveMode(m => ({ ...m, water: true })); } else { setWater(null); setLiveMode(m => ({ ...m, water: false })); } }
     catch { setWater(null); setLiveMode(m => ({ ...m, water: false })); }
+    try { const ev = await fetchNightlifeEvents(); setEvents(ev); setLiveMode(m => ({ ...m, events: ev.length > 0 })); }
+    catch { setEvents([]); setLiveMode(m => ({ ...m, events: false })); }
     setLastUpdate(new Date());
     setLoading(false);
   }, []);
@@ -474,6 +518,7 @@ export default function GhentOps() {
             { key: "bikes",    label: "Bikes"    },
             { key: "counters", label: "Counters" },
             { key: "water",    label: "Sea"      },
+            { key: "events",   label: "Events"   },
           ].map(({ key, label }) => (
             <div key={key} className="sb-feed-row">
               <span className={`ldot ${liveMode[key] ? "ldot--pulse" : "ldot--off"}`} />
@@ -963,13 +1008,75 @@ export default function GhentOps() {
                 <span className="section__num">10</span>
                 <div>
                   <h2 id="nlt-h" className="section__title">Tonight in the Clubs</h2>
-                  <span className="section__src">Hand-picked · tap for tonight's lineup</span>
+                  <span className="section__src">UiTdatabank · data.stad.gent · this week</span>
                 </div>
               </div>
-              <Disc3 size={15} style={{ color: "var(--fg-dim)" }} aria-hidden="true" />
+              <LivePill live={liveMode.events} />
             </div>
+
+            {/* ── Real events from API ── */}
+            {events === null && (
+              <div className="section__loading">
+                {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} h={52} r={6} />)}
+              </div>
+            )}
+
+            {events !== null && events.length > 0 && (
+              <div className="ev-list" aria-label="Events this week">
+                {events.map((e, i) => {
+                  const now = new Date();
+                  const pad2 = (n) => String(n).padStart(2, "0");
+                  const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+                  let dateLabel = null;
+                  if (e.date) {
+                    const diff = Math.floor((e.date - now) / 86400000);
+                    const t = `${pad2(e.date.getHours())}:${pad2(e.date.getMinutes())}`;
+                    if (diff === 0)      dateLabel = `Tonight · ${t}`;
+                    else if (diff === 1) dateLabel = `Tomorrow · ${t}`;
+                    else                 dateLabel = `${dayLabels[e.date.getDay()]} · ${t}`;
+                  }
+                  const El = e.url ? "a" : "div";
+                  const linkProps = e.url ? { href: e.url, target: "_blank", rel: "noopener noreferrer" } : {};
+                  return (
+                    <El key={i} className={`ev-row${e.url ? " ev-row--link" : ""}`} {...linkProps}
+                       aria-label={e.name}>
+                      {dateLabel && <span className="ev-date tabular">{dateLabel}</span>}
+                      <div className="ev-body">
+                        <span className="ev-name">{e.name}</span>
+                        {e.venue && <span className="ev-venue">{e.venue}</span>}
+                      </div>
+                      {e.category && (
+                        <span className="ev-cat">{String(e.category).slice(0, 20)}</span>
+                      )}
+                      {e.url && <ArrowUpRight size={11} className="ev-arrow" aria-hidden="true" />}
+                    </El>
+                  );
+                })}
+              </div>
+            )}
+
+            {events !== null && events.length === 0 && (
+              <p className="section__empty">No events found in UiTdatabank for this week — check venues directly.</p>
+            )}
+
+            {/* ── Full agenda link ── */}
+            <a
+              className="ev-more"
+              href="https://www.uitinvlaanderen.be/agenda/l/gent"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Zap size={11} aria-hidden="true" />
+              Full Ghent agenda on UiT in Vlaanderen
+              <ArrowUpRight size={11} aria-hidden="true" />
+            </a>
+
+            {/* ── Divider ── */}
+            <div className="ev-divider" aria-hidden="true">WHERE THE MUSIC IS</div>
+
+            {/* ── Curated venue cards ── */}
             <p className="section__intro">
-              Ghent's club scene isn't in the city's open data — these are hand-picked. Each card opens where the venue actually announces tonight's lineup (usually Instagram).
+              Tap a card to check tonight's lineup — these venues announce events on Instagram first.
             </p>
             <div className="venues-grid">
               {NIGHTLIFE_VENUES.map((v, i) => (
@@ -988,9 +1095,20 @@ export default function GhentOps() {
                   <div className="venue-card__name">{v.name}</div>
                   <div className="venue-card__kind">{v.kind}</div>
                   <div className="venue-card__vibe">{v.vibe}</div>
-                  <div className="venue-card__area">
-                    <MapPin size={9} aria-hidden="true" />
-                    {v.area}
+                  <div className="venue-card__foot">
+                    <span className="venue-card__area">
+                      <MapPin size={9} aria-hidden="true" /> {v.area}
+                    </span>
+                    <a
+                      href={v.web}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="venue-card__web"
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`${v.name} website`}
+                    >
+                      Web
+                    </a>
                   </div>
                 </a>
               ))}
@@ -1738,7 +1856,77 @@ const css = `
 .venue-card__vibe { font-size: 12px; color: var(--fg-muted); line-height: 1.45; flex: 1; }
 .venue-card__area {
   display: flex; align-items: center; gap: 4px;
-  font-family: var(--mono); font-size: 9px; letter-spacing: 0.05em; color: var(--fg-dim); margin-top: 4px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: 0.05em; color: var(--fg-dim);
+}
+.venue-card__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px;
+}
+.venue-card__web {
+  font-family: var(--mono); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.08em; color: var(--fg-muted); text-decoration: none;
+  padding: 2px 7px; border-radius: 4px;
+  border: 1px solid var(--border);
+  transition: color 150ms var(--ease), border-color 150ms var(--ease);
+  flex-shrink: 0;
+}
+.venue-card__web:hover { color: var(--accent); border-color: rgba(34,197,94,0.35); }
+
+/* ── EVENTS (live nightlife feed) ─────────────────────────────── */
+.ev-list {
+  display: flex; flex-direction: column;
+  border-bottom: 1px solid var(--border-s);
+}
+.ev-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 13px 22px; border-bottom: 1px solid var(--border-s);
+  color: var(--fg); text-decoration: none;
+  transition: background 150ms var(--ease);
+}
+.ev-row:last-child { border-bottom: none; }
+.ev-row:hover { background: var(--card2); }
+.ev-row--link { cursor: pointer; }
+.ev-date {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  color: var(--fg-muted); letter-spacing: 0.04em;
+  white-space: nowrap; flex-shrink: 0; min-width: 118px;
+}
+.ev-body {
+  flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.ev-name {
+  font-weight: 500; font-size: 13px; color: var(--fg);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ev-venue {
+  font-size: 11px; color: var(--fg-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ev-cat {
+  font-family: var(--mono); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  padding: 2px 8px; border-radius: 99px;
+  background: var(--muted); color: var(--fg-muted);
+  white-space: nowrap; flex-shrink: 0;
+}
+.ev-arrow { color: var(--fg-dim); flex-shrink: 0; transition: color 150ms var(--ease); }
+.ev-row:hover .ev-arrow { color: var(--accent); }
+
+.ev-more {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.08em; color: var(--accent); text-decoration: none;
+  padding: 12px 22px; border-bottom: 1px solid var(--border-s);
+  transition: background 150ms var(--ease);
+}
+.ev-more:hover { background: var(--acc-bg); }
+
+.ev-divider {
+  padding: 10px 22px;
+  font-family: var(--mono); font-size: 9px; font-weight: 700;
+  letter-spacing: 0.22em; color: var(--fg-dim);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-s);
+  background: var(--bg);
 }
 
 .foot { position: relative; overflow: hidden; border-top: 1px solid var(--border); background: var(--bg2); }

@@ -162,32 +162,39 @@ export default function MiniMap({
     // Build new markers
     markers.forEach((m) => {
       const el = document.createElement("div");
-      el.className = "mm-marker";
+      el.className = `mm-marker${m.pulse ? " mm-marker--pulse" : ""}`;
       el.setAttribute("aria-label", m.label || "");
       el.style.cssText = `
         width: ${m.size || 14}px;
         height: ${m.size || 14}px;
         border-radius: 50%;
         background: ${m.color || "#22C55E"};
-        border: 2px solid rgba(15,23,42,0.9);
-        box-shadow: 0 0 0 1px ${m.color || "#22C55E"}66, 0 0 12px ${m.color || "#22C55E"}88;
-        cursor: ${m.onClick ? "pointer" : "default"};
+        border: 2px solid rgba(15,23,42,0.85);
+        box-shadow: 0 0 0 1.5px ${m.color || "#22C55E"}55;
+        cursor: ${(m.onClick || m.mapsHref) ? "pointer" : "default"};
         transition: transform 180ms cubic-bezier(0.16,1,0.3,1);
+        --pulse-color: ${m.color || "#22C55E"};
       `;
-      el.onmouseenter = () => { el.style.transform = "scale(1.25)"; };
+      el.onmouseenter = () => { el.style.transform = "scale(1.35)"; };
       el.onmouseleave = () => { el.style.transform = "scale(1)"; };
       if (m.onClick) el.onclick = m.onClick;
+      else if (m.mapsHref) el.onclick = () => window.open(m.mapsHref, "_blank", "noopener");
 
-      // Tooltip as popup on hover
+      // Tooltip popup — shown on hover, includes a directions link
+      const mapsHref = m.mapsHref || (m.onClick ? null : null);
       const popup = new maplibregl.Popup({
-        offset: 14,
+        offset: 16,
         closeButton: false,
         closeOnClick: false,
         className: "mm-popup",
       }).setHTML(`
-        <div style="font-family: 'Fira Sans', system-ui, sans-serif; font-size: 12px;">
-          <div style="font-weight:600; color:#F8FAFC; margin-bottom:2px;">${m.label || ""}</div>
-          ${m.sublabel ? `<div style="color:#94A3B8; font-size:10px; font-variant-numeric:tabular-nums;">${m.sublabel}</div>` : ""}
+        <div style="font-family: system-ui, sans-serif; font-size: 12px; min-width: 130px;">
+          <div style="font-weight:600; color:#F8FAFC; margin-bottom:3px; line-height:1.3;">${m.label || ""}</div>
+          ${m.sublabel ? `<div style="color:#94A3B8; font-size:10px; font-variant-numeric:tabular-nums; margin-bottom:6px;">${m.sublabel}</div>` : ""}
+          ${m.mapsHref ? `<a href="${m.mapsHref}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:#60A5FA;text-decoration:none;font-weight:500;letter-spacing:0.03em;">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            Get directions
+          </a>` : ""}
         </div>
       `);
 
@@ -203,13 +210,21 @@ export default function MiniMap({
       markerObjectsRef.current.push(marker);
     });
 
-    // Fit bounds if multiple markers
-    if (markers.length > 1) {
+    // Fit to sunny markers first (if any), otherwise fit all
+    const fitTargets = markers.filter(m => m.pulse) .length > 0
+      ? markers.filter(m => m.pulse)
+      : markers;
+
+    if (fitTargets.length > 1) {
+      const bounds = new maplibregl.LngLatBounds();
+      fitTargets.forEach((m) => bounds.extend([m.lng, m.lat]));
+      map.fitBounds(bounds, { padding: 50, maxZoom: 15, duration: 700 });
+    } else if (fitTargets.length === 1) {
+      map.flyTo({ center: [fitTargets[0].lng, fitTargets[0].lat], zoom: 15, duration: 700 });
+    } else if (markers.length > 1) {
       const bounds = new maplibregl.LngLatBounds();
       markers.forEach((m) => bounds.extend([m.lng, m.lat]));
-      map.fitBounds(bounds, { padding: 30, maxZoom: 14, duration: 600 });
-    } else if (markers.length === 1) {
-      map.flyTo({ center: [markers[0].lng, markers[0].lat], zoom: 14, duration: 600 });
+      map.fitBounds(bounds, { padding: 40, maxZoom: 14, duration: 700 });
     }
   }, [markers]);
 
@@ -226,6 +241,14 @@ export default function MiniMap({
         }}
       />
       <style>{`
+        @keyframes mm-pulse {
+          0%   { box-shadow: 0 0 0 0 var(--pulse-color, #F59E0B); }
+          60%  { box-shadow: 0 0 0 7px transparent; }
+          100% { box-shadow: 0 0 0 0 transparent; }
+        }
+        .mm-marker--pulse {
+          animation: mm-pulse 2s ease-out infinite;
+        }
         .mm-popup .maplibregl-popup-content {
           background: rgba(15, 23, 42, 0.96) !important;
           border: 1px solid rgba(71, 85, 105, 0.5) !important;
