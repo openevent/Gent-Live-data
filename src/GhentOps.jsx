@@ -469,16 +469,13 @@ export default function GhentOps() {
   const [loading,    setLoading]    = useState(false);
 
   // ── UI state ─────────────────────────────────────────────────────────────
-  const [view,          setView]          = useState("dashboard"); // "dashboard" | "terraces"
-  const [sidebarPinned, setSidebarPinned] = useState(false);
-  const [sidebarHover,  setSidebarHover]  = useState(false);
+  const [view,           setView]           = useState("dashboard"); // "dashboard" | "terraces"
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [expanded, setExpanded] = useState({
     weather: true, air: true, trains: true, parking: true,
     bikes: false, counters: false, sea: false, swim: false, gem: true, nightlife: true,
   });
 
-  const sidebarOpen = sidebarPinned || sidebarHover;
   const toggle = key => setExpanded(s => ({ ...s, [key]: !s[key] }));
 
   const handleNavClick = (id, secKey) => {
@@ -564,26 +561,13 @@ export default function GhentOps() {
       <a href="#main" className="skip-link">Skip to content</a>
 
       {/* ═══════════════ SIDEBAR ═══════════════ */}
-      <aside
-        className={`sb${sidebarOpen ? " sb--open" : ""}${sidebarPinned ? " sb--pinned" : ""}`}
-        onMouseEnter={() => setSidebarHover(true)}
-        onMouseLeave={() => setSidebarHover(false)}
-        aria-label="Dashboard navigation"
-      >
-        {/* Logo */}
-        <div className="sb-logo">
-          <div className="sb-logo__icon">
-            <Radio size={15} strokeWidth={2.2} aria-hidden="true" />
-          </div>
-          <div className="sb-logo__text">
-            <span className="sb-logo__city">GENT</span>
-            <span className="sb-logo__now">NOW</span>
-          </div>
-          <span className="ldot ldot--on sb-logo__dot" aria-label="Live" />
-        </div>
+      <aside className="sb" aria-label="Dashboard navigation">
 
-        {/* Quip */}
-        <div className="sb-quip">{quip}</div>
+        {/* Logo mark */}
+        <div className="sb-logo" aria-label="Gent Now">
+          <Radio size={14} strokeWidth={2.2} aria-hidden="true" />
+          <span className="ldot ldot--on" aria-label="Live" />
+        </div>
 
         {/* Nav */}
         <nav className="sb-nav" aria-label="Sections">
@@ -594,60 +578,43 @@ export default function GhentOps() {
                 key={id}
                 className="sb-item"
                 onClick={() => handleNavClick(id, secKey)}
-                aria-label={`Go to ${label}`}
+                aria-label={label}
+                data-label={label}
               >
-                <span className="sb-item__icon">
-                  <Icon size={14} strokeWidth={1.9} aria-hidden="true" />
-                </span>
-                <span className="sb-item__label">{label}</span>
-                <span className={`sb-item__dot${live ? " sb-item__dot--live" : ""}`} />
+                <Icon size={15} strokeWidth={1.8} aria-hidden="true" />
+                {live && <span className="sb-item__live" aria-hidden="true" />}
+                <span className="sb-tip">{label}</span>
               </button>
             );
           })}
 
-          {/* Terraces — switches view */}
+          <div className="sb-divider" aria-hidden="true" />
+
+          {/* Terraces */}
           <button
-            className={`sb-item sb-item--terraces${view === "terraces" ? " sb-item--active" : ""}`}
+            className={`sb-item${view === "terraces" ? " sb-item--active" : ""}`}
             onClick={() => { setView(v => v === "terraces" ? "dashboard" : "terraces"); setMobileMenuOpen(false); }}
-            aria-label="Toggle terraces sun tracker"
+            aria-label="Terrace Sun Tracker"
+            data-label="Terraces ☀"
           >
-            <span className="sb-item__icon"><Sun size={14} strokeWidth={1.9} aria-hidden="true" /></span>
-            <span className="sb-item__label">Terraces ☀</span>
-            <span className="sb-item__dot" />
+            <Sun size={15} strokeWidth={1.8} aria-hidden="true" />
+            <span className="sb-tip">Terraces ☀</span>
           </button>
         </nav>
 
         <div className="sb-spacer" />
 
-        {/* Pin button */}
+        {/* Refresh */}
         <button
-          className="sb-pin"
-          onClick={() => setSidebarPinned(p => !p)}
-          aria-label={sidebarPinned ? "Unpin sidebar" : "Pin sidebar open"}
+          className="sb-item sb-item--refresh"
+          onClick={loadAll}
+          disabled={loading}
+          aria-label="Refresh all data"
+          data-label={loading ? "Loading…" : "Refresh"}
         >
-          <span className="sb-item__icon">
-            <Menu size={13} aria-hidden="true" />
-          </span>
-          <span className="sb-item__label">{sidebarPinned ? "Unpin" : "Pin open"}</span>
+          <RefreshCw size={14} className={loading ? "spin" : ""} aria-hidden="true" />
+          <span className="sb-tip">{loading ? "Loading…" : "Refresh"}</span>
         </button>
-
-        {/* Footer */}
-        <div className="sb-foot">
-          <span className="sb-foot__time sb-item__label">
-            {lastUpdate
-              ? lastUpdate.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-              : "—"}
-          </span>
-          <button
-            className="sb-refresh"
-            onClick={loadAll}
-            disabled={loading}
-            aria-label="Refresh all data"
-          >
-            <RefreshCw size={11} className={loading ? "spin" : ""} aria-hidden="true" />
-            <span className="sb-item__label">{loading ? "Loading…" : "Refresh"}</span>
-          </button>
-        </div>
       </aside>
 
       {/* ═══════════════ BODY ═══════════════ */}
@@ -698,85 +665,68 @@ export default function GhentOps() {
           /* ═══════════════ DASHBOARD ═══════════════ */
           <main id="main" className="main">
 
-            {/* ── STATUS BANNER ───────────────────── */}
-            <div className={`banner banner--${call.level}`} role="status" aria-live="polite">
-              <span className="banner__icon">
-                {call.level === "ok"
-                  ? <CircleCheck size={15} strokeWidth={2} aria-hidden="true" />
-                  : <CircleAlert  size={15} strokeWidth={2} aria-hidden="true" />}
-              </span>
-              <div className="banner__text">
-                <span className="banner__head">{call.head}</span>
-                <span className="banner__body">{call.body}</span>
+            {/* ── CITY PULSE HERO ──────────────────── */}
+            <div className="hero" role="banner" aria-live="polite">
+
+              {/* Left — temp + weather */}
+              <div className="hero__left">
+                <div className="hero__temp tabular">
+                  {tempVal ?? "—"}<sup>°C</sup>
+                </div>
+                <div className="hero__wx">
+                  <span className="hero__wx-icon">{weatherIcon(wxDesc.icon, 20)}</span>
+                  <span className="hero__wx-label">{wxDesc.label}</span>
+                </div>
+                <div className="hero__quip">"{quip}"</div>
               </div>
-              <span className="banner__tag">
-                <Zap size={10} aria-hidden="true" />
-                {liveCount} live
-              </span>
+
+              {/* Right — key stats */}
+              <div className="hero__right">
+                <div className="hero__stat">
+                  <Car size={10} aria-hidden="true" />
+                  <span className="hero__stat-val tabular" style={{ color: cityStatus.color }}>
+                    {parkingLoaded ? `${occVal ?? cityOcc}%` : "—"}
+                  </span>
+                  <em>parking</em>
+                </div>
+                <div className="hero__stat">
+                  <Wind size={10} aria-hidden="true" />
+                  <span className="hero__stat-val tabular" style={{ color: aqiColor }}>
+                    {aqiVal ?? "—"}
+                  </span>
+                  <em>AQI</em>
+                </div>
+                <div className="hero__stat">
+                  <Droplets size={10} aria-hidden="true" />
+                  <span className="hero__stat-val tabular" style={{ color: wxData.rainChance > 60 ? "#4FC3F7" : undefined }}>
+                    {rainVal ?? "—"}%
+                  </span>
+                  <em>rain 6h</em>
+                </div>
+                <div className="hero__stat">
+                  <Bike size={10} aria-hidden="true" />
+                  <span className="hero__stat-val tabular" style={{ color: STATUS.ok.color }}>
+                    {bikesLoaded ? (bikeVal ?? "—") : "—"}
+                  </span>
+                  <em>bikes</em>
+                </div>
+
+                <div className="hero__meta">
+                  <span className="hero__live">
+                    <span className="ldot ldot--on" />
+                    {liveCount} live
+                  </span>
+                  {lastUpdate && (
+                    <span className="hero__time tabular">
+                      ↻ {lastUpdate.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Glow accent */}
+              <div className="hero__glow" aria-hidden="true" />
             </div>
-
-            {/* ── KPI ROW ─────────────────────────── */}
-            <div className="kpi-row" role="list">
-
-              <div className="kpi" role="listitem">
-                <div className="kpi__label">
-                  {weatherIcon(wxDesc.icon, 11)} TEMP
-                </div>
-                <div className="kpi__val">
-                  {tempVal ?? "—"}<span className="kpi__unit">°C</span>
-                </div>
-                <div className="kpi__sub">{wxDesc.label}</div>
-                <div className="kpi__bar">
-                  <div className="kpi__fill kpi__fill--anim"
-                    style={{ "--bar-w": `${Math.min(100, Math.max(0, ((wxData.temp ?? 0) + 10) / 45 * 100))}%`,
-                      background: wxData.temp > 22 ? STATUS.alert.color : wxData.temp > 15 ? STATUS.warn.color : STATUS.ok.color }} />
-                </div>
-              </div>
-
-              <div className="kpi" role="listitem">
-                <div className="kpi__label"><Car size={11} aria-hidden="true" /> PARKING</div>
-                <div className="kpi__val" style={{ color: cityStatus.color }}>
-                  {parkingLoaded ? (occVal ?? "—") : "—"}<span className="kpi__unit">%</span>
-                </div>
-                <div className="kpi__sub">{parkingLoaded ? `${freeSpaces.toLocaleString()} free` : <Skeleton w={60} h={10} />}</div>
-                <div className="kpi__bar">
-                  <div className="kpi__fill kpi__fill--anim" style={{ "--bar-w": `${cityOcc}%`, background: cityStatus.color }} />
-                </div>
-              </div>
-
-              <div className="kpi" role="listitem">
-                <div className="kpi__label"><Wind size={11} aria-hidden="true" /> AIR AQI</div>
-                <div className="kpi__val" style={{ color: aqiColor }}>
-                  {aqiVal ?? "—"}
-                </div>
-                <div className="kpi__sub" style={{ color: aqiColor }}>{aqiLabel}</div>
-                <div className="kpi__bar">
-                  <div className="kpi__fill kpi__fill--anim" style={{ "--bar-w": `${Math.min(100, (air?.aqi ?? 0) / 100 * 100)}%`, background: aqiColor }} />
-                </div>
-              </div>
-
-              <div className="kpi" role="listitem">
-                <div className="kpi__label"><Bike size={11} aria-hidden="true" /> BIKES</div>
-                <div className="kpi__val" style={{ color: STATUS.ok.color }}>
-                  {bikesLoaded ? (bikeVal ?? "—") : "—"}
-                </div>
-                <div className="kpi__sub">{bikesLoaded ? `${bikes.fleets.length} fleets` : <Skeleton w={60} h={10} />}</div>
-              </div>
-
-              <div className="kpi" role="listitem">
-                <div className="kpi__label"><Droplets size={11} aria-hidden="true" /> RAIN · 6H</div>
-                <div className="kpi__val" style={{ color: wxData.rainChance > 60 ? "#4FC3F7" : undefined }}>
-                  {rainVal ?? "—"}<span className="kpi__unit">%</span>
-                </div>
-                <div className="kpi__sub">
-                  {wxData.rainChance > 70 ? "umbrella time" : wxData.rainChance > 40 ? "maybe pack one" : "staying dry"}
-                </div>
-                <div className="kpi__bar">
-                  <div className="kpi__fill kpi__fill--anim" style={{ "--bar-w": `${wxData.rainChance}%`, background: "#4FC3F7" }} />
-                </div>
-              </div>
-
-            </div>{/* end kpi-row */}
 
             {/* ── WEATHER ──────────────────────────── */}
             <SectionCard id="sec-weather" num="01" title="Weather" src="Open-Meteo · Ghent centre"
@@ -1195,8 +1145,6 @@ const css = `
   --mono:     'JetBrains Mono', ui-monospace, monospace;
   --ease:     cubic-bezier(0.16, 1, 0.3, 1);
   --r:        10px;
-  --sb-w:     64px;
-  --sb-open:  242px;
 
   display: flex;
   min-height: 100vh;
@@ -1278,9 +1226,9 @@ const css = `
   animation: bar-in 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-/* ── SIDEBAR ─────────────────────────────────────────────────────────── */
+/* ── SIDEBAR — 56px icon rail ────────────────────────────────────────── */
 .sb {
-  width: var(--sb-w);
+  width: 56px;
   flex-shrink: 0;
   position: sticky;
   top: 0;
@@ -1289,164 +1237,79 @@ const css = `
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  transition: width 260ms var(--ease);
+  align-items: center;
+  overflow: visible;
   z-index: 50;
 }
-.sb--open { width: var(--sb-open); }
 
 /* Logo */
 .sb-logo {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 20px 16px 14px;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 5px; padding: 18px 0 14px;
   border-bottom: 1px solid var(--border-s);
-  flex-shrink: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-.sb-logo__icon {
-  width: 32px; height: 32px; flex-shrink: 0;
-  background: var(--acc-bg);
-  border: 1px solid rgba(0,255,136,0.18);
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
+  width: 100%; flex-shrink: 0;
   color: var(--accent);
 }
-.sb-logo__text { display: flex; flex-direction: column; line-height: 1; overflow: hidden; }
-.sb-logo__city {
-  font-family: var(--mono); font-weight: 700; font-size: 12px;
-  letter-spacing: 0.22em; color: var(--fg);
-  opacity: 0; transition: opacity 200ms ease;
-}
-.sb--open .sb-logo__city { opacity: 1; }
-.sb-logo__now {
-  font-family: var(--mono); font-weight: 500; font-size: 9px;
-  letter-spacing: 0.25em; color: var(--accent);
-  opacity: 0; transition: opacity 200ms ease 30ms;
-}
-.sb--open .sb-logo__now { opacity: 1; }
-.sb-logo__dot { margin-left: auto; flex-shrink: 0; }
-
-/* Quip */
-.sb-quip {
-  padding: 10px 16px;
-  font-size: 11px;
-  color: var(--fg-muted);
-  font-style: italic;
-  line-height: 1.5;
-  border-bottom: 1px solid var(--border-s);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  opacity: 0;
-  transition: opacity 200ms ease;
-}
-.sb--open .sb-quip { opacity: 1; }
 
 /* Nav */
 .sb-nav {
   display: flex; flex-direction: column;
-  padding: 8px 6px 8px;
-  gap: 2px;
-  overflow: hidden;
+  align-items: center;
+  padding: 10px 0;
+  gap: 4px;
+  width: 100%;
+}
+
+.sb-divider {
+  width: 28px; height: 1px;
+  background: var(--border-s);
+  margin: 4px 0;
 }
 
 .sb-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px;
-  border-radius: 7px;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--fg-muted);
   cursor: pointer;
-  text-align: left;
-  width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
   transition: background 140ms var(--ease), color 140ms var(--ease);
-  font-family: var(--sans);
-  font-size: 13px;
+  flex-shrink: 0;
 }
 .sb-item:hover { background: var(--muted); color: var(--fg); }
 .sb-item--active { color: var(--accent) !important; background: var(--acc-bg) !important; }
-.sb-item--terraces { margin-top: 4px; border-top: 1px solid var(--border-s); padding-top: 12px; }
+.sb-item--refresh { margin-bottom: 12px; }
+.sb-item--refresh:disabled { opacity: 0.4; cursor: wait; }
 
-.sb-item__icon {
-  width: 28px; height: 28px; flex-shrink: 0;
+/* Live dot on icon */
+.sb-item__live {
+  position: absolute; top: 6px; right: 6px;
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 5px var(--acc-ring);
+}
+
+/* Tooltip */
+.sb-tip {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%; transform: translateY(-50%);
+  background: var(--card2);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--fg);
+  padding: 5px 10px;
   border-radius: 6px;
-  background: var(--muted);
-  display: flex; align-items: center; justify-content: center;
-  transition: background 140ms var(--ease);
+  font-family: var(--sans); font-size: 12px; font-weight: 500;
+  white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity 120ms ease;
+  z-index: 200;
 }
-.sb-item:hover .sb-item__icon { background: var(--card2); }
-.sb-item--active .sb-item__icon { background: var(--acc-bg); color: var(--accent); }
-
-.sb-item__label {
-  flex: 1;
-  font-weight: 500;
-  opacity: 0;
-  transform: translateX(-6px);
-  transition: opacity 200ms ease, transform 200ms ease;
-  pointer-events: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.sb--open .sb-item__label {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-.sb-item__dot {
-  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
-  background: var(--fg-dim);
-  opacity: 0; transition: opacity 200ms ease;
-}
-.sb-item__dot--live { background: var(--accent); box-shadow: 0 0 5px var(--acc-ring); }
-.sb--open .sb-item__dot { opacity: 1; }
+.sb-item:hover .sb-tip { opacity: 1; }
 
 .sb-spacer { flex: 1; }
-
-.sb-pin {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px;
-  border: none; border-top: 1px solid var(--border-s);
-  background: transparent;
-  color: var(--fg-muted);
-  cursor: pointer;
-  width: 100%;
-  white-space: nowrap; overflow: hidden;
-  transition: background 140ms var(--ease), color 140ms var(--ease);
-  font-family: var(--sans); font-size: 12px;
-}
-.sb-pin:hover { background: var(--muted); color: var(--fg); }
-.sb--pinned .sb-pin { color: var(--accent); }
-
-.sb-foot {
-  padding: 10px 6px 16px;
-  border-top: 1px solid var(--border);
-  display: flex; flex-direction: column; gap: 6px;
-  flex-shrink: 0; overflow: hidden;
-}
-.sb-foot__time {
-  font-family: var(--mono); font-size: 10px;
-  color: var(--fg-muted); letter-spacing: 0.05em;
-  padding: 0 10px;
-}
-
-.sb-refresh {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--muted);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  font-family: var(--mono); font-size: 10px; font-weight: 500;
-  letter-spacing: 0.08em;
-  padding: 7px 10px; border-radius: 6px; cursor: pointer;
-  transition: all 150ms var(--ease); width: 100%; white-space: nowrap;
-}
-.sb-refresh:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--acc-bg); }
-.sb-refresh:disabled { opacity: 0.4; cursor: wait; }
 
 /* ── MOBILE TOP BAR ──────────────────────────────────────────────────── */
 .mob-bar { display: none; }
@@ -1486,86 +1349,95 @@ const css = `
 }
 .tv__title svg { color: var(--warn); }
 
-/* ── STATUS BANNER ───────────────────────────────────────────────────── */
-.banner {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 18px;
-  border-radius: var(--r);
-  border: 1px solid var(--border);
+/* ── CITY PULSE HERO ─────────────────────────────────────────────────── */
+.hero {
+  position: relative;
+  display: flex; align-items: center; gap: 0;
   background: var(--card);
-  position: relative; overflow: hidden;
-  transition: border-color 300ms var(--ease);
-}
-.banner::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
-  border-radius: 0 2px 2px 0;
-}
-.banner--ok    { border-color: rgba(0,255,136,0.12);  }
-.banner--warn  { border-color: rgba(255,149,0,0.12);  }
-.banner--alert { border-color: rgba(255,69,58,0.12);  }
-.banner--ok    .banner__icon { color: var(--accent); }
-.banner--warn  .banner__icon { color: var(--warn);   }
-.banner--alert .banner__icon { color: var(--alert);  }
-.banner--ok::before    { background: var(--accent); box-shadow: 0 0 12px var(--acc-ring); }
-.banner--warn::before  { background: var(--warn);   box-shadow: 0 0 12px rgba(255,149,0,0.3); }
-.banner--alert::before { background: var(--alert);  box-shadow: 0 0 12px rgba(255,69,58,0.3); }
-.banner--info  .banner__icon { color: var(--fg-muted); }
-.banner--info::before { background: var(--fg-dim); }
-
-.banner__icon { flex-shrink: 0; }
-.banner__text { flex: 1; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.banner__head { font-weight: 600; font-size: 14px; color: var(--fg); }
-.banner__body { font-size: 12px; color: var(--fg-muted); }
-.banner__tag {
-  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
-  font-family: var(--mono); font-size: 9px; font-weight: 600;
-  letter-spacing: 0.1em; color: var(--fg-muted);
-  padding: 3px 8px; border-radius: 99px;
-  border: 1px solid var(--border); background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
 }
 
-/* ── KPI ROW ─────────────────────────────────────────────────────────── */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+.hero__glow {
+  position: absolute; top: -40px; left: -20px;
+  width: 180px; height: 180px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,255,136,0.07) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Left — temperature block */
+.hero__left {
+  padding: 28px 32px;
+  border-right: 1px solid var(--border-s);
+  flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 8px;
+}
+
+.hero__temp {
+  font-family: var(--mono); font-weight: 800;
+  font-size: 72px; line-height: 1; letter-spacing: -0.04em;
+  color: var(--fg);
+  text-shadow: 0 0 40px rgba(0,255,136,0.15);
+}
+.hero__temp sup {
+  font-size: 24px; color: var(--fg-muted);
+  font-weight: 500; vertical-align: super;
+}
+
+.hero__wx {
+  display: flex; align-items: center; gap: 7px;
+  color: var(--fg-muted);
+}
+.hero__wx-icon { color: var(--fg-muted); display: flex; align-items: center; }
+.hero__wx-label { font-weight: 500; font-size: 14px; color: var(--fg); }
+
+.hero__quip {
+  font-size: 11px; color: var(--fg-muted);
+  font-style: italic; line-height: 1.5;
+  max-width: 220px;
+}
+
+/* Right — stats grid */
+.hero__right {
+  flex: 1;
+  display: flex; flex-direction: column;
+  padding: 24px 28px;
   gap: 10px;
 }
-.kpi {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--r);
-  padding: 16px 18px;
-  display: flex; flex-direction: column;
-  transition: border-color 200ms var(--ease), box-shadow 200ms var(--ease), transform 200ms var(--ease);
-  cursor: default;
+
+.hero__stat {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--fg-muted); font-size: 12px;
 }
-.kpi:hover {
-  border-color: rgba(255,255,255,0.11);
-  box-shadow: 0 6px 28px rgba(0,0,0,0.55);
-  transform: translateY(-1px);
+.hero__stat-val {
+  font-family: var(--mono); font-weight: 700;
+  font-size: 18px; color: var(--fg); line-height: 1;
+  min-width: 42px;
 }
-.kpi__label {
-  display: flex; align-items: center; gap: 5px;
-  font-family: var(--mono); font-size: 9px; font-weight: 600;
-  letter-spacing: 0.18em; color: var(--fg-muted);
-  text-transform: uppercase; margin-bottom: 10px;
+.hero__stat em {
+  font-style: normal;
+  font-size: 10px; color: var(--fg-muted);
+  letter-spacing: 0.06em; text-transform: uppercase;
+  font-family: var(--mono);
 }
-.kpi__val {
-  font-family: var(--mono); font-weight: 800;
-  font-size: 32px; line-height: 1;
-  letter-spacing: -0.03em; color: var(--fg);
-  margin-bottom: 5px;
+
+.hero__meta {
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 6px; padding-top: 10px;
+  border-top: 1px solid var(--border-s);
 }
-.kpi__unit { font-size: 14px; color: var(--fg-muted); margin-left: 2px; font-weight: 500; }
-.kpi__sub {
-  font-size: 11px; color: var(--fg-muted);
-  display: flex; align-items: center; gap: 4px;
-  min-height: 16px; flex: 1;
+.hero__live {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: 0.1em; color: var(--accent);
 }
-.kpi__bar {
-  margin-top: 12px; height: 2px; border-radius: 99px;
-  background: var(--muted); overflow: hidden;
+.hero__time {
+  font-family: var(--mono); font-size: 10px;
+  color: var(--fg-muted); letter-spacing: 0.04em;
 }
+
+/* KPI fill bar (still used in parking/section cards) */
 .kpi__fill {
   height: 100%;
   border-radius: 99px;
@@ -1921,9 +1793,13 @@ const css = `
   }
   .mob-menu__item:hover { background: var(--muted); color: var(--fg); }
   .main { padding: 14px 14px 20px; }
+  .hero__left { padding: 20px 22px; }
+  .hero__temp { font-size: 52px; }
 }
 @media (max-width: 640px) {
-  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .hero { flex-direction: column; }
+  .hero__left { border-right: none; border-bottom: 1px solid var(--border-s); width: 100%; padding: 20px 18px 16px; }
+  .hero__right { padding: 16px 18px; }
   .wx-wrap  { grid-template-columns: 1fr; }
   .wx-hero  { border-right: none; border-bottom: 1px solid var(--border-s); }
   .air-wrap { flex-direction: column; }
